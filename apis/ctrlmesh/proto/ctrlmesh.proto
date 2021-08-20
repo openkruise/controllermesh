@@ -1,0 +1,63 @@
+syntax = "proto3";
+option go_package = "proto";
+package proto;
+
+service ControllerMesh {
+  rpc Register(stream ProxyStatus) returns (stream ProxySpec) {}
+}
+
+message ProxyStatus {
+  SelfInfo selfInfo = 1;
+  SpecHash specHash = 2;
+  ControlInstruction controlInstruction = 3;
+}
+
+message SelfInfo {
+  string namespace = 1;
+  string name = 2;
+}
+
+message SpecHash {
+  string resourceVersion = 1;
+  string routeHash = 2;
+  string routeStrictHash = 3;
+  string endpointsHash = 4;
+  string namespacesHash = 5;
+}
+
+message ProxySpec {
+  VAppMeta meta = 1;
+  Route route = 2;
+  repeated Endpoint endpoints = 3;
+  ControlInstruction controlInstruction = 4;
+}
+
+message VAppMeta {
+  string token = 1;
+  string name = 2;
+  string resourceVersion = 3;
+}
+
+message Route {
+  string subset = 1;
+  string globalLimits = 2;
+  string subRules = 3;
+  string subsets = 4;
+  repeated string globalExcludeNamespaces = 5;
+  repeated SensSubsetNamespaces sensSubsetNamespaces = 6;
+}
+
+message SensSubsetNamespaces {
+  string name = 1;
+  repeated string namespaces = 2;
+}
+
+message Endpoint {
+  string name = 1;
+  string subset = 2;
+  string ip = 3;
+}
+
+message ControlInstruction {
+  bool blockLeaderElection = 1;
+}

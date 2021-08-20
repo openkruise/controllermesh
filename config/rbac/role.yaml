@@ -1,0 +1,108 @@
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: manager-role
+rules:
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - mutatingwebhookconfigurations
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - validatingwebhookconfigurations
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ctrlmesh.kruise.io
+  resources:
+  - clustermeta
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ctrlmesh.kruise.io
+  resources:
+  - clustermeta/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ctrlmesh.kruise.io
+  resources:
+  - clustermeta/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - ctrlmesh.kruise.io
+  resources:
+  - virtualapps
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ctrlmesh.kruise.io
+  resources:
+  - virtualapps/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ctrlmesh.kruise.io
+  resources:
+  - virtualapps/status
+  verbs:
+  - get
+  - patch
+  - update

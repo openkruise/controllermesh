@@ -1,0 +1,7 @@
+apiVersion: ctrlmesh.kruise.io/v1alpha1
+kind: VirtualApp
+metadata:
+  name: virtualapp-sample
+spec:
+  # Add fields here
+  foo: bar
