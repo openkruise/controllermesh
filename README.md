@@ -20,11 +20,11 @@ The `ctrlmesh-manager` dispatches rules to the proxies, so that they can route r
 
 <p align="center"><img width="500" src="./docs/img/readme-2.png"/></p>
 
-A core CRD in ControllerMesh is `VirtualApplication`. It contains all rules for user's controller and webhook:
+A core CRD in ControllerMesh is `VirtualApp`. It contains all rules for user's controller and webhook:
 
 ```yaml
 apiVersion: ctrlmesh.kruise.io/v1alpha1
-kind: VirtualApplication
+kind: VirtualApp
 metadata:
   name: test-operator
   # ...
