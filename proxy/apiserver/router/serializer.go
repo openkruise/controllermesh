@@ -50,17 +50,15 @@ var (
 var (
 	builtInScheme = runtime.NewScheme()
 
-	typedNegotiator        runtime.ClientNegotiator
-	unstructuredNegotiator runtime.ClientNegotiator
+	typedCodec        = serializer.NewCodecFactory(builtInScheme)
+	unstructuredCodec = unstructuredscheme.NewUnstructuredNegotiatedSerializer()
+	metaNegotiator    = runtime.NewClientNegotiator(typedCodec, schema.GroupVersion{Version: "v1"})
 )
 
 func init() {
 	utilruntime.Must(metav1.AddMetaToScheme(builtInScheme))
 	metav1.AddToGroupVersion(builtInScheme, schema.GroupVersion{Version: "v1"})
 	utilruntime.Must(clientgoscheme.AddToScheme(builtInScheme))
-
-	typedNegotiator = runtime.NewClientNegotiator(serializer.NewCodecFactory(builtInScheme), schema.GroupVersion{})
-	unstructuredNegotiator = runtime.NewClientNegotiator(unstructuredscheme.NewUnstructuredNegotiatedSerializer(), schema.GroupVersion{})
 }
 
 func newResponseSerializer(resp *http.Response, apiResource *metav1.APIResource, reqInfo *request.RequestInfo, isStreaming bool) (*responseSerializer, error) {
@@ -78,7 +76,7 @@ func newResponseSerializer(resp *http.Response, apiResource *metav1.APIResource,
 	switch mediaType {
 	case runtime.ContentTypeJSON, runtime.ContentTypeYAML:
 		obj = &unstructured.Unstructured{}
-		negotiator = unstructuredNegotiator
+		negotiator = runtime.NewClientNegotiator(unstructuredCodec, schema.GroupVersion{Group: apiResource.Group, Version: apiResource.Version})
 	case runtime.ContentTypeProtobuf:
 		gvk := schema.GroupVersionKind{Group: apiResource.Group, Version: apiResource.Version, Kind: apiResource.Kind}
 		if !isStreaming {
@@ -87,7 +85,7 @@ func newResponseSerializer(resp *http.Response, apiResource *metav1.APIResource,
 		if obj, err = builtInScheme.New(gvk); err != nil {
 			return nil, fmt.Errorf("error new object for resource %v with mediaType=%s from built-in scheme: %v", mediaType, gvk, err)
 		}
-		negotiator = typedNegotiator
+		negotiator = runtime.NewClientNegotiator(typedCodec, schema.GroupVersion{Group: apiResource.Group, Version: apiResource.Version})
 	default:
 		return nil, fmt.Errorf("unknown mediaType %s", mediaType)
 	}
@@ -104,7 +102,7 @@ func newResponseSerializer(resp *http.Response, apiResource *metav1.APIResource,
 		return nil, fmt.Errorf("error new encoder for contentType %s: %v", contentType, err)
 	}
 	if isStreaming {
-		_, respSerializer.streamSerializer, respSerializer.streamFramer, err = typedNegotiator.StreamDecoder(mediaType, params)
+		_, respSerializer.streamSerializer, respSerializer.streamFramer, err = metaNegotiator.StreamDecoder(mediaType, params)
 		if err != nil {
 			return nil, fmt.Errorf("error new stream decoder for contentType %s: %v", contentType, err)
 		}
@@ -195,8 +193,7 @@ func (s *responseSerializer) DecodeList(ctx context.Context) (runtime.Object, er
 }
 
 func (s *responseSerializer) EncodeList(obj runtime.Object) (io.ReadCloser, int, error) {
-	s.buf.Reset()
-
+	s.resetBuf()
 	var w io.Writer = s.buf
 	if s.gzipWriter != nil {
 		s.gzipWriter.Reset(s.buf)
@@ -211,6 +208,7 @@ func (s *responseSerializer) EncodeList(obj runtime.Object) (io.ReadCloser, int,
 }
 
 func (s *responseSerializer) DecodeWatch() (*metav1.WatchEvent, runtime.Object, error) {
+	s.resetBuf()
 	n, err := s.reader.readStreaming(s.buf.Bytes()[:s.buf.Cap()])
 	if err != nil {
 		return nil, nil, err
@@ -235,8 +233,7 @@ func (s *responseSerializer) DecodeWatch() (*metav1.WatchEvent, runtime.Object, 
 }
 
 func (s *responseSerializer) EncodeWatch(e *metav1.WatchEvent) ([]byte, error) {
-	s.buf.Reset()
-
+	s.resetBuf()
 	var w = s.streamFramer.NewFrameWriter(s.buf)
 	if s.gzipWriter != nil {
 		s.gzipWriter.Reset(w)

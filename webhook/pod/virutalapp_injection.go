@@ -37,13 +37,14 @@ import (
 )
 
 var (
-	initImage  = flag.String("ctrlmesh-init-image", "", "The image for ControllerMesh init container.")
-	proxyImage = flag.String("ctrlmesh-proxy-image", "", "The image for ControllerMesh proxy container.")
+	initImage  = flag.String("init-image", "", "The image for ControllerMesh init container.")
+	proxyImage = flag.String("proxy-image", "", "The image for ControllerMesh proxy container.")
 
-	proxyResourceCPU    = flag.String("ctrlmesh-proxy-cpu", "100m", "The CPU limit for ControllerMesh proxy container.")
-	proxyResourceMemory = flag.String("ctrlmesh-proxy-memory", "200Mi", "The Memory limit for ControllerMesh proxy container.")
-	proxyLogLevel       = flag.Uint("ctrlmesh-proxy-logv", 4, "The log level of ControllerMesh proxy container.")
-	proxyExtraEnvs      = flag.String("ctrlmesh-extra-envs", "", "Extra environments for ControllerMesh proxy container.")
+	proxyImagePullPolicy = flag.String("proxy-image-pull-policy", "Always", "Image pull policy for ControllerMesh proxy container, can be Always or IfNotPresent.")
+	proxyResourceCPU     = flag.String("proxy-cpu", "100m", "The CPU limit for ControllerMesh proxy container.")
+	proxyResourceMemory  = flag.String("proxy-memory", "200Mi", "The Memory limit for ControllerMesh proxy container.")
+	proxyLogLevel        = flag.Uint("proxy-logv", 4, "The log level of ControllerMesh proxy container.")
+	proxyExtraEnvs       = flag.String("proxy-extra-envs", "", "Extra environments for ControllerMesh proxy container.")
 )
 
 // +kubebuilder:rbac:groups=ctrlmesh.kruise.io,resources=virtualapps,verbs=get;list;watch
@@ -93,10 +94,15 @@ func (h *MutatingHandler) injectByVirtualApp(ctx context.Context, pod *v1.Pod) (
 		return fmt.Errorf("the images for ControllerMesh init or proxy container have not set in args")
 	}
 
+	imagePullPolicy := v1.PullAlways
+	if *proxyImagePullPolicy == string(v1.PullIfNotPresent) {
+		imagePullPolicy = v1.PullIfNotPresent
+	}
+
 	initContainer = &v1.Container{
 		Name:            constants.InitContainerName,
 		Image:           *initImage,
-		ImagePullPolicy: v1.PullAlways,
+		ImagePullPolicy: imagePullPolicy,
 		SecurityContext: &v1.SecurityContext{
 			Privileged:   utilpointer.BoolPtr(true),
 			Capabilities: &v1.Capabilities{Add: []v1.Capability{"NET_ADMIN"}},
@@ -105,7 +111,7 @@ func (h *MutatingHandler) injectByVirtualApp(ctx context.Context, pod *v1.Pod) (
 	proxyContainer = &v1.Container{
 		Name:            constants.ProxyContainerName,
 		Image:           *proxyImage,
-		ImagePullPolicy: v1.PullAlways,
+		ImagePullPolicy: imagePullPolicy,
 		Args: []string{
 			"--v=" + strconv.Itoa(int(*proxyLogLevel)),
 		},
@@ -120,7 +126,7 @@ func (h *MutatingHandler) injectByVirtualApp(ctx context.Context, pod *v1.Pod) (
 			},
 		},
 		ReadinessProbe: &v1.Probe{
-			Handler:       v1.Handler{HTTPGet: &v1.HTTPGetAction{Path: "/healthz", Port: intstr.FromInt(constants.ProxyMetricsHealthPort)}},
+			Handler:       v1.Handler{HTTPGet: &v1.HTTPGetAction{Path: "/readyz", Port: intstr.FromInt(constants.ProxyMetricsHealthPort)}},
 			PeriodSeconds: 3,
 		},
 		Resources: v1.ResourceRequirements{

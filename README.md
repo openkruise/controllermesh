@@ -34,8 +34,7 @@ spec:
       component: test-operator
   configuration:
     controller:
-      leaderElection:
-        lockName: test-operator
+      leaderElectionName: test-operator
     webhook:
       certDir: /tmp/webhook-certs
       port: 9443

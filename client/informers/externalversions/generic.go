@@ -52,8 +52,8 @@ func (f *genericInformer) Lister() cache.GenericLister {
 func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource) (GenericInformer, error) {
 	switch resource {
 	// Group=ctrlmesh.kruise.io, Version=v1alpha1
-	case v1alpha1.SchemeGroupVersion.WithResource("clustermetas"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Ctrlmesh().V1alpha1().ClusterMetas().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("managerstates"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Ctrlmesh().V1alpha1().ManagerStates().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("virtualapps"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Ctrlmesh().V1alpha1().VirtualApps().Informer()}, nil
 

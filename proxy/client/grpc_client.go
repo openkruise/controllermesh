@@ -39,7 +39,7 @@ import (
 
 type grpcClient struct {
 	informer cache.SharedIndexInformer
-	lister   ctrlmeshv1alpha1listers.ClusterMetaLister
+	lister   ctrlmeshv1alpha1listers.ManagerStateLister
 
 	route              *ctrlmeshproto.InternalRoute
 	endpoints          []*ctrlmeshproto.Endpoint
@@ -58,16 +58,16 @@ func NewGrpcClient() Client {
 
 func (c *grpcClient) Start(ctx context.Context) error {
 	clientset := client.GetGenericClient().CtrlmeshClient
-	c.informer = ctrlmeshv1alphainformers.NewFilteredClusterMetaInformer(clientset, 0, cache.Indexers{}, func(opts *metav1.ListOptions) {
+	c.informer = ctrlmeshv1alphainformers.NewFilteredManagerStateInformer(clientset, 0, cache.Indexers{}, func(opts *metav1.ListOptions) {
 		opts.FieldSelector = "metadata.name=" + ctrlmeshv1alpha1.NameOfManager
 	})
-	c.lister = ctrlmeshv1alpha1listers.NewClusterMetaLister(c.informer.GetIndexer())
+	c.lister = ctrlmeshv1alpha1listers.NewManagerStateLister(c.informer.GetIndexer())
 
 	go func() {
 		c.informer.Run(ctx.Done())
 	}()
 	if ok := cache.WaitForCacheSync(ctx.Done(), c.informer.HasSynced); !ok {
-		return fmt.Errorf("error waiting clustermeta informer synced")
+		return fmt.Errorf("error waiting ManagerState informer synced")
 	}
 
 	initChan := make(chan struct{})
@@ -83,35 +83,35 @@ func (c *grpcClient) connect(ctx context.Context, initChan chan struct{}) {
 		}
 		klog.V(4).Infof("Starting grpc connecting...")
 
-		clusterMeta, err := c.lister.Get(ctrlmeshv1alpha1.NameOfManager)
+		managerState, err := c.lister.Get(ctrlmeshv1alpha1.NameOfManager)
 		if err != nil {
 			if errors.IsNotFound(err) {
-				klog.Warningf("Not found ClusterMeta %s, waiting...", ctrlmeshv1alpha1.NameOfManager)
+				klog.Warningf("Not found ManagerState %s, waiting...", ctrlmeshv1alpha1.NameOfManager)
 			} else {
-				klog.Warningf("Failed to get ClusterMeta %s: %v, waiting...", ctrlmeshv1alpha1.NameOfManager, err)
+				klog.Warningf("Failed to get ManagerState %s: %v, waiting...", ctrlmeshv1alpha1.NameOfManager, err)
 			}
 			continue
 		}
 
-		if clusterMeta.Status.Ports == nil || clusterMeta.Status.Ports.GrpcLeaderElectionPort == 0 {
-			klog.Warningf("No grpc port in ClusterMeta %s, waiting...", util.DumpJSON(clusterMeta))
+		if managerState.Status.Ports == nil || managerState.Status.Ports.GrpcLeaderElectionPort == 0 {
+			klog.Warningf("No grpc port in ManagerState %s, waiting...", util.DumpJSON(managerState))
 			continue
 		}
 
-		var leader *ctrlmeshv1alpha1.ClusterMetaEndpoint
-		for i := range clusterMeta.Status.Endpoints {
-			e := &clusterMeta.Status.Endpoints[i]
+		var leader *ctrlmeshv1alpha1.ManagerStateEndpoint
+		for i := range managerState.Status.Endpoints {
+			e := &managerState.Status.Endpoints[i]
 			if e.Leader {
 				leader = e
 				break
 			}
 		}
 		if leader == nil {
-			klog.Warningf("No leader in ClusterMeta %s, waiting...", util.DumpJSON(clusterMeta))
+			klog.Warningf("No leader in ManagerState %s, waiting...", util.DumpJSON(managerState))
 			continue
 		}
 
-		addr := fmt.Sprintf("%s:%d", leader.PodIP, clusterMeta.Status.Ports.GrpcLeaderElectionPort)
+		addr := fmt.Sprintf("%s:%d", leader.PodIP, managerState.Status.Ports.GrpcLeaderElectionPort)
 		klog.V(4).Infof("Preparing to connect ctrlmesh-manager %v", addr)
 		func() {
 			var opts []grpc.DialOption

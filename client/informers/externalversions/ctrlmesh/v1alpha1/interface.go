@@ -23,8 +23,8 @@ import (
 
 // Interface provides access to all the informers in this group version.
 type Interface interface {
-	// ClusterMetas returns a ClusterMetaInformer.
-	ClusterMetas() ClusterMetaInformer
+	// ManagerStates returns a ManagerStateInformer.
+	ManagerStates() ManagerStateInformer
 	// VirtualApps returns a VirtualAppInformer.
 	VirtualApps() VirtualAppInformer
 }
@@ -40,9 +40,9 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
 }
 
-// ClusterMetas returns a ClusterMetaInformer.
-func (v *version) ClusterMetas() ClusterMetaInformer {
-	return &clusterMetaInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+// ManagerStates returns a ManagerStateInformer.
+func (v *version) ManagerStates() ManagerStateInformer {
+	return &managerStateInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // VirtualApps returns a VirtualAppInformer.

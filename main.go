@@ -38,7 +38,7 @@ import (
 
 	ctrlmeshv1alpha1 "github.com/openkruise/controllermesh/apis/ctrlmesh/v1alpha1"
 	"github.com/openkruise/controllermesh/client"
-	"github.com/openkruise/controllermesh/controllers/clustermeta"
+	"github.com/openkruise/controllermesh/controllers/managerstate"
 	"github.com/openkruise/controllermesh/controllers/server"
 	"github.com/openkruise/controllermesh/grpcregistry"
 	"github.com/openkruise/controllermesh/util"
@@ -135,10 +135,10 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "VirtualApp")
 			os.Exit(1)
 		}
-		if err = (&clustermeta.ClusterMetaReconciler{
-			Client: util.NewClientFromManager(mgr, "clustermeta-controller"),
+		if err = (&managerstate.ManagerStateReconciler{
+			Client: util.NewClientFromManager(mgr, "managerstate-controller"),
 		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "ClusterMeta")
+			setupLog.Error(err, "unable to create controller", "controller", "ManagerState")
 			os.Exit(1)
 		}
 		//+kubebuilder:scaffold:builder

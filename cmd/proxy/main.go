@@ -38,6 +38,7 @@ import (
 	apiserverproxy "github.com/openkruise/controllermesh/proxy/apiserver"
 	proxyclient "github.com/openkruise/controllermesh/proxy/client"
 	"github.com/openkruise/controllermesh/proxy/metrics"
+	webhookproxy "github.com/openkruise/controllermesh/proxy/webhook"
 	"github.com/openkruise/controllermesh/util"
 )
 
@@ -52,7 +53,6 @@ var (
 )
 
 func main() {
-	klog.InitFlags(nil)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
 
@@ -72,12 +72,28 @@ func main() {
 	ctx := signals.SetupSignalHandler()
 	readyHandler := &healthz.Handler{}
 	proxyClient := proxyclient.NewGrpcClient()
+	if err := proxyClient.Start(ctx); err != nil {
+		klog.Fatalf("Failed to start proxy client: %v", err)
+	}
 
 	var stoppedApiserver, stoppedWebhook <-chan struct{}
 
 	// start webhook proxy
 	if *webhookServePort > 0 {
-		// TODO
+		opts := &webhookproxy.Options{
+			CertDir:     *webhookCertDir,
+			BindPort:    *proxyWebhookPort,
+			WebhookPort: *webhookServePort,
+			ProxyClient: proxyClient,
+		}
+		proxy := webhookproxy.NewProxy(opts)
+		readyHandler.Checks["webhookProxy"] = proxy.HealthFunc
+		stoppedWebhook, err = proxy.Start(ctx)
+		if err != nil {
+			klog.Fatalf("Failed to start webhook proxy: %v", err)
+		}
+	} else {
+		klog.Infof("Skip proxy webhook for webhook serve port not set")
 	}
 
 	// start apiserver proxy
@@ -123,7 +139,7 @@ func serveHTTP(ctx context.Context, readyHandler *healthz.Handler) {
 	mux.Handle("/metrics", promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{
 		ErrorHandling: promhttp.HTTPErrorOnError,
 	}))
-	mux.Handle("/readyz", readyHandler)
+	mux.Handle("/readyz", http.StripPrefix("/readyz", readyHandler))
 
 	server := http.Server{
 		Handler: mux,

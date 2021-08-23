@@ -52,8 +52,8 @@ type VirtualAppReconciler struct {
 //+kubebuilder:rbac:groups=ctrlmesh.kruise.io,resources=virtualapps,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=ctrlmesh.kruise.io,resources=virtualapps/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=ctrlmesh.kruise.io,resources=virtualapps/finalizers,verbs=update
-// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
-// +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch
+//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+//+kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch
 
 func (r *VirtualAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, retErr error) {
 	startTime := time.Now()

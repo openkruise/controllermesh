@@ -6,20 +6,20 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.4.1
   creationTimestamp: null
-  name: clustermeta.ctrlmesh.kruise.io
+  name: managerstates.ctrlmesh.kruise.io
 spec:
   group: ctrlmesh.kruise.io
   names:
-    kind: ClusterMeta
-    listKind: ClusterMetaList
-    plural: clustermeta
-    singular: clustermeta
+    kind: ManagerState
+    listKind: ManagerStateList
+    plural: managerstates
+    singular: managerstate
   scope: Cluster
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: ClusterMeta is the Schema for the clustermeta API
+        description: ManagerState is the Schema for the managerstates API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -34,10 +34,10 @@ spec:
           metadata:
             type: object
           spec:
-            description: ClusterMetaSpec defines the desired state of ClusterMeta
+            description: ManagerStateSpec defines the desired state of ManagerState
             type: object
           status:
-            description: ClusterMetaStatus defines the observed state of ClusterMeta
+            description: ManagerStateStatus defines the observed state of ManagerState
             properties:
               endpoints:
                 items:

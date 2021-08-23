@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package clustermeta
+package managerstate
 
 import (
 	"context"
@@ -51,30 +51,30 @@ var (
 	localName   string
 )
 
-// ClusterMetaReconciler reconciles a ClusterMeta object
-type ClusterMetaReconciler struct {
+// ManagerStateReconciler reconciles a ManagerState object
+type ManagerStateReconciler struct {
 	client.Client
 }
 
-// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
-// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch
-//+kubebuilder:rbac:groups=ctrlmesh.kruise.io,resources=clustermeta,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=ctrlmesh.kruise.io,resources=clustermeta/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=ctrlmesh.kruise.io,resources=clustermeta/finalizers,verbs=update
+//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+//+kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch
+//+kubebuilder:rbac:groups=ctrlmesh.kruise.io,resources=managerstates,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=ctrlmesh.kruise.io,resources=managerstates/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=ctrlmesh.kruise.io,resources=managerstates/finalizers,verbs=update
 
-func (r *ClusterMetaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, err error) {
+func (r *ManagerStateReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, err error) {
 	if req.Name != ctrlmeshv1alpha1.NameOfManager {
-		klog.Infof("Ignore ClusterMeta %s", req.Name)
+		klog.Infof("Ignore ManagerState %s", req.Name)
 		return reconcile.Result{}, nil
 	}
 
 	start := time.Now()
-	klog.V(3).Infof("Starting to process ClusterMeta %v", req.Name)
+	klog.V(3).Infof("Starting to process ManagerState %v", req.Name)
 	defer func() {
 		if err != nil {
-			klog.Warningf("Failed to process ClusterMeta %v, elapsedTime %v, error: %v", req.Name, time.Since(start), err)
+			klog.Warningf("Failed to process ManagerState %v, elapsedTime %v, error: %v", req.Name, time.Since(start), err)
 		} else {
-			klog.Infof("Finish to process ClusterMeta %v, elapsedTime %v", req.Name, time.Since(start))
+			klog.Infof("Finish to process ManagerState %v, elapsedTime %v", req.Name, time.Since(start))
 		}
 	}()
 
@@ -85,14 +85,14 @@ func (r *ClusterMetaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	var hasLeader bool
-	endpoints := make(ctrlmeshv1alpha1.ClusterMetaEndpoints, 0, len(podList.Items))
+	endpoints := make(ctrlmeshv1alpha1.ManagerStateEndpoints, 0, len(podList.Items))
 	for i := range podList.Items {
 		pod := &podList.Items[i]
 		if !util.IsPodActive(pod) {
 			continue
 		}
 
-		e := ctrlmeshv1alpha1.ClusterMetaEndpoint{Name: pod.Name, PodIP: pod.Status.PodIP}
+		e := ctrlmeshv1alpha1.ManagerStateEndpoint{Name: pod.Name, PodIP: pod.Status.PodIP}
 		if pod.Name == localName {
 			e.Leader = true
 			hasLeader = true
@@ -104,45 +104,45 @@ func (r *ClusterMetaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return reconcile.Result{}, fmt.Errorf("no leader %s in new endpoints %v", localName, util.DumpJSON(endpoints))
 	}
 
-	ports := ctrlmeshv1alpha1.ClusterMetaPorts{}
+	ports := ctrlmeshv1alpha1.ManagerStatePorts{}
 	ports.GrpcLeaderElectionPort, ports.GrpcNonLeaderElectionPort = grpcregistry.GetGrpcPorts()
-	newStatus := ctrlmeshv1alpha1.ClusterMetaStatus{
+	newStatus := ctrlmeshv1alpha1.ManagerStateStatus{
 		Namespace: namespace,
 		Endpoints: endpoints,
 		Ports:     &ports,
 	}
 
-	metaInfo := &ctrlmeshv1alpha1.ClusterMeta{}
-	err = r.Get(context.TODO(), req.NamespacedName, metaInfo)
+	managerState := &ctrlmeshv1alpha1.ManagerState{}
+	err = r.Get(context.TODO(), req.NamespacedName, managerState)
 	if err != nil {
 		if !errors.IsNotFound(err) {
-			return reconcile.Result{}, fmt.Errorf("get ClusterMeta %s error: %v", req.Name, err)
+			return reconcile.Result{}, fmt.Errorf("get ManagerState %s error: %v", req.Name, err)
 		}
 
-		metaInfo.Name = ctrlmeshv1alpha1.NameOfManager
-		metaInfo.Status = newStatus
-		err = r.Create(context.TODO(), metaInfo)
+		managerState.Name = ctrlmeshv1alpha1.NameOfManager
+		managerState.Status = newStatus
+		err = r.Create(context.TODO(), managerState)
 		if err != nil && !errors.IsAlreadyExists(err) {
-			return reconcile.Result{}, fmt.Errorf("create ClusterMeta %s error: %v", req.Name, err)
+			return reconcile.Result{}, fmt.Errorf("create ManagerState %s error: %v", req.Name, err)
 		}
 		return
 	}
 
-	if reflect.DeepEqual(metaInfo.Status, newStatus) {
+	if reflect.DeepEqual(managerState.Status, newStatus) {
 		return reconcile.Result{}, nil
 	}
 
-	metaInfo.Status = newStatus
-	err = r.Status().Update(context.TODO(), metaInfo)
+	managerState.Status = newStatus
+	err = r.Status().Update(context.TODO(), managerState)
 	if err != nil {
-		return reconcile.Result{}, fmt.Errorf("update ClusterMeta %s error: %v", req.Name, err)
+		return reconcile.Result{}, fmt.Errorf("update ManagerState %s error: %v", req.Name, err)
 	}
 
 	return reconcile.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ClusterMetaReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ManagerStateReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	namespace = webhookutil.GetNamespace()
 	if localName = os.Getenv("POD_NAME"); len(localName) == 0 {
 		return fmt.Errorf("find no POD_NAME in env")
@@ -162,7 +162,7 @@ func (r *ClusterMetaReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&ctrlmeshv1alpha1.ClusterMeta{}).
+		For(&ctrlmeshv1alpha1.ManagerState{}).
 		Watches(&source.Kind{Type: &v1.Pod{}}, &enqueueHandler{}, builder.WithPredicates(predicate.Funcs{
 			CreateFunc: func(e event.CreateEvent) bool {
 				pod := e.Object.(*v1.Pod)

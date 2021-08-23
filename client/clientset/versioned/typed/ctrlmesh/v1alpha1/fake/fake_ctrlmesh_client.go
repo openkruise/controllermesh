@@ -27,8 +27,8 @@ type FakeCtrlmeshV1alpha1 struct {
 	*testing.Fake
 }
 
-func (c *FakeCtrlmeshV1alpha1) ClusterMetas() v1alpha1.ClusterMetaInterface {
-	return &FakeClusterMetas{c}
+func (c *FakeCtrlmeshV1alpha1) ManagerStates() v1alpha1.ManagerStateInterface {
+	return &FakeManagerStates{c}
 }
 
 func (c *FakeCtrlmeshV1alpha1) VirtualApps(namespace string) v1alpha1.VirtualAppInterface {

@@ -1,13 +1,13 @@
-# permissions for end users to edit clustermeta.
+# permissions for end users to edit managerstates.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: clustermeta-editor-role
+  name: managerstate-editor-role
 rules:
 - apiGroups:
   - ctrlmesh.kruise.io
   resources:
-  - clustermeta
+  - managerstates
   verbs:
   - create
   - delete
@@ -19,6 +19,6 @@ rules:
 - apiGroups:
   - ctrlmesh.kruise.io
   resources:
-  - clustermeta/status
+  - managerstates/status
   verbs:
   - get

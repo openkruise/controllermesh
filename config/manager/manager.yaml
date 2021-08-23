@@ -27,7 +27,7 @@ spec:
         - /manager
         args:
         - --logtostderr=true
-        - --v=5
+        - --v=4
         image: controller:latest
         imagePullPolicy: Always
         name: manager

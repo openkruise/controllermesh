@@ -7,7 +7,7 @@ rules:
 - apiGroups:
   - ctrlmesh.kruise.io
   resources:
-  - clustermeta
+  - managerstates
   verbs:
   - get
   - list

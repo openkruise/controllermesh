@@ -31,58 +31,58 @@ import (
 	cache "k8s.io/client-go/tools/cache"
 )
 
-// ClusterMetaInformer provides access to a shared informer and lister for
-// ClusterMetas.
-type ClusterMetaInformer interface {
+// ManagerStateInformer provides access to a shared informer and lister for
+// ManagerStates.
+type ManagerStateInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1alpha1.ClusterMetaLister
+	Lister() v1alpha1.ManagerStateLister
 }
 
-type clusterMetaInformer struct {
+type managerStateInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
 }
 
-// NewClusterMetaInformer constructs a new informer for ClusterMeta type.
+// NewManagerStateInformer constructs a new informer for ManagerState type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewClusterMetaInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredClusterMetaInformer(client, resyncPeriod, indexers, nil)
+func NewManagerStateInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredManagerStateInformer(client, resyncPeriod, indexers, nil)
 }
 
-// NewFilteredClusterMetaInformer constructs a new informer for ClusterMeta type.
+// NewFilteredManagerStateInformer constructs a new informer for ManagerState type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredClusterMetaInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredManagerStateInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CtrlmeshV1alpha1().ClusterMetas().List(context.TODO(), options)
+				return client.CtrlmeshV1alpha1().ManagerStates().List(context.TODO(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CtrlmeshV1alpha1().ClusterMetas().Watch(context.TODO(), options)
+				return client.CtrlmeshV1alpha1().ManagerStates().Watch(context.TODO(), options)
 			},
 		},
-		&ctrlmeshv1alpha1.ClusterMeta{},
+		&ctrlmeshv1alpha1.ManagerState{},
 		resyncPeriod,
 		indexers,
 	)
 }
 
-func (f *clusterMetaInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredClusterMetaInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+func (f *managerStateInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
+	return NewFilteredManagerStateInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
-func (f *clusterMetaInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&ctrlmeshv1alpha1.ClusterMeta{}, f.defaultInformer)
+func (f *managerStateInformer) Informer() cache.SharedIndexInformer {
+	return f.factory.InformerFor(&ctrlmeshv1alpha1.ManagerState{}, f.defaultInformer)
 }
 
-func (f *clusterMetaInformer) Lister() v1alpha1.ClusterMetaLister {
-	return v1alpha1.NewClusterMetaLister(f.Informer().GetIndexer())
+func (f *managerStateInformer) Lister() v1alpha1.ManagerStateLister {
+	return v1alpha1.NewManagerStateLister(f.Informer().GetIndexer())
 }

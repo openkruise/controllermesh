@@ -25,7 +25,7 @@ import (
 
 type CtrlmeshV1alpha1Interface interface {
 	RESTClient() rest.Interface
-	ClusterMetasGetter
+	ManagerStatesGetter
 	VirtualAppsGetter
 }
 
@@ -34,8 +34,8 @@ type CtrlmeshV1alpha1Client struct {
 	restClient rest.Interface
 }
 
-func (c *CtrlmeshV1alpha1Client) ClusterMetas() ClusterMetaInterface {
-	return newClusterMetas(c)
+func (c *CtrlmeshV1alpha1Client) ManagerStates() ManagerStateInterface {
+	return newManagerStates(c)
 }
 
 func (c *CtrlmeshV1alpha1Client) VirtualApps(namespace string) VirtualAppInterface {

@@ -17,6 +17,6 @@ limitations under the License.
 
 package v1alpha1
 
-type ClusterMetaExpansion interface{}
+type ManagerStateExpansion interface{}
 
 type VirtualAppExpansion interface{}

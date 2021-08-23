@@ -24,32 +24,32 @@ const (
 	NameOfManager = "ctrlmesh-manager"
 )
 
-// ClusterMetaSpec defines the desired state of ClusterMeta
-type ClusterMetaSpec struct {
+// ManagerStateSpec defines the desired state of ManagerState
+type ManagerStateSpec struct {
 }
 
-// ClusterMetaStatus defines the observed state of ClusterMeta
-type ClusterMetaStatus struct {
-	Namespace string               `json:"namespace,omitempty"`
-	Endpoints ClusterMetaEndpoints `json:"endpoints,omitempty"`
-	Ports     *ClusterMetaPorts    `json:"ports,omitempty"`
+// ManagerStateStatus defines the observed state of ManagerState
+type ManagerStateStatus struct {
+	Namespace string                `json:"namespace,omitempty"`
+	Endpoints ManagerStateEndpoints `json:"endpoints,omitempty"`
+	Ports     *ManagerStatePorts    `json:"ports,omitempty"`
 }
 
-type ClusterMetaEndpoints []ClusterMetaEndpoint
+type ManagerStateEndpoints []ManagerStateEndpoint
 
-func (e ClusterMetaEndpoints) Len() int      { return len(e) }
-func (e ClusterMetaEndpoints) Swap(i, j int) { e[i], e[j] = e[j], e[i] }
-func (e ClusterMetaEndpoints) Less(i, j int) bool {
+func (e ManagerStateEndpoints) Len() int      { return len(e) }
+func (e ManagerStateEndpoints) Swap(i, j int) { e[i], e[j] = e[j], e[i] }
+func (e ManagerStateEndpoints) Less(i, j int) bool {
 	return e[i].Name < e[j].Name
 }
 
-type ClusterMetaEndpoint struct {
+type ManagerStateEndpoint struct {
 	Name   string `json:"name"`
 	PodIP  string `json:"podIP"`
 	Leader bool   `json:"leader"`
 }
 
-type ClusterMetaPorts struct {
+type ManagerStatePorts struct {
 	GrpcLeaderElectionPort    int `json:"grpcLeaderElectionPort,omitempty"`
 	GrpcNonLeaderElectionPort int `json:"grpcNonLeaderElectionPort,omitempty"`
 }
@@ -57,28 +57,28 @@ type ClusterMetaPorts struct {
 // +genclient
 // +genclient:nonNamespaced
 // +k8s:openapi-gen=true
-// +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
+//+kubebuilder:object:root=true
+//+kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
 
-// ClusterMeta is the Schema for the clustermeta API
-type ClusterMeta struct {
+// ManagerState is the Schema for the managerstates API
+type ManagerState struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ClusterMetaSpec   `json:"spec,omitempty"`
-	Status ClusterMetaStatus `json:"status,omitempty"`
+	Spec   ManagerStateSpec   `json:"spec,omitempty"`
+	Status ManagerStateStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// ClusterMetaList contains a list of ClusterMeta
-type ClusterMetaList struct {
+// ManagerStateList contains a list of ManagerState
+type ManagerStateList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []ClusterMeta `json:"items"`
+	Items           []ManagerState `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&ClusterMeta{}, &ClusterMetaList{})
+	SchemeBuilder.Register(&ManagerState{}, &ManagerStateList{})
 }

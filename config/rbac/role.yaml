@@ -29,6 +29,14 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - pods
   verbs:
   - get
@@ -57,7 +65,7 @@ rules:
 - apiGroups:
   - ctrlmesh.kruise.io
   resources:
-  - clustermeta
+  - managerstates
   verbs:
   - create
   - delete
@@ -69,13 +77,13 @@ rules:
 - apiGroups:
   - ctrlmesh.kruise.io
   resources:
-  - clustermeta/finalizers
+  - managerstates/finalizers
   verbs:
   - update
 - apiGroups:
   - ctrlmesh.kruise.io
   resources:
-  - clustermeta/status
+  - managerstates/status
   verbs:
   - get
   - patch

@@ -24,44 +24,44 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-// ClusterMetaLister helps list ClusterMetas.
+// ManagerStateLister helps list ManagerStates.
 // All objects returned here must be treated as read-only.
-type ClusterMetaLister interface {
-	// List lists all ClusterMetas in the indexer.
+type ManagerStateLister interface {
+	// List lists all ManagerStates in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1alpha1.ClusterMeta, err error)
-	// Get retrieves the ClusterMeta from the index for a given name.
+	List(selector labels.Selector) (ret []*v1alpha1.ManagerState, err error)
+	// Get retrieves the ManagerState from the index for a given name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1alpha1.ClusterMeta, error)
-	ClusterMetaListerExpansion
+	Get(name string) (*v1alpha1.ManagerState, error)
+	ManagerStateListerExpansion
 }
 
-// clusterMetaLister implements the ClusterMetaLister interface.
-type clusterMetaLister struct {
+// managerStateLister implements the ManagerStateLister interface.
+type managerStateLister struct {
 	indexer cache.Indexer
 }
 
-// NewClusterMetaLister returns a new ClusterMetaLister.
-func NewClusterMetaLister(indexer cache.Indexer) ClusterMetaLister {
-	return &clusterMetaLister{indexer: indexer}
+// NewManagerStateLister returns a new ManagerStateLister.
+func NewManagerStateLister(indexer cache.Indexer) ManagerStateLister {
+	return &managerStateLister{indexer: indexer}
 }
 
-// List lists all ClusterMetas in the indexer.
-func (s *clusterMetaLister) List(selector labels.Selector) (ret []*v1alpha1.ClusterMeta, err error) {
+// List lists all ManagerStates in the indexer.
+func (s *managerStateLister) List(selector labels.Selector) (ret []*v1alpha1.ManagerState, err error) {
 	err = cache.ListAll(s.indexer, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.ClusterMeta))
+		ret = append(ret, m.(*v1alpha1.ManagerState))
 	})
 	return ret, err
 }
 
-// Get retrieves the ClusterMeta from the index for a given name.
-func (s *clusterMetaLister) Get(name string) (*v1alpha1.ClusterMeta, error) {
+// Get retrieves the ManagerState from the index for a given name.
+func (s *managerStateLister) Get(name string) (*v1alpha1.ManagerState, error) {
 	obj, exists, err := s.indexer.GetByKey(name)
 	if err != nil {
 		return nil, err
 	}
 	if !exists {
-		return nil, errors.NewNotFound(v1alpha1.Resource("clustermeta"), name)
+		return nil, errors.NewNotFound(v1alpha1.Resource("managerstate"), name)
 	}
-	return obj.(*v1alpha1.ClusterMeta), nil
+	return obj.(*v1alpha1.ManagerState), nil
 }

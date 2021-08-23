@@ -25,13 +25,12 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apiserver/pkg/endpoints/handlers/responsewriters"
-
 	"k8s.io/apimachinery/pkg/util/httpstream/spdy"
 	"k8s.io/apimachinery/pkg/util/proxy"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/authentication/user"
 	genericapifilters "k8s.io/apiserver/pkg/endpoints/filters"
+	"k8s.io/apiserver/pkg/endpoints/handlers/responsewriters"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/server"
 	genericfilters "k8s.io/apiserver/pkg/server/filters"
@@ -110,7 +109,7 @@ func (h *handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "no request info in context", http.StatusBadRequest)
 		return
 	}
-	klog.V(6).Infof("%s %s %s request info %s", r.Method, r.Header.Get("Content-Type"), r.URL, util.DumpJSON(requestInfo))
+	klog.V(5).Infof("%s %s %s request info %s", r.Method, r.Header.Get("Content-Type"), r.URL, util.DumpJSON(requestInfo))
 
 	var modifyResponse func(*http.Response) error
 	var modifyBody func(*http.Response) io.Reader

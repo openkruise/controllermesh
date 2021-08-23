@@ -207,7 +207,6 @@ func (h *listHandler) filterItems(list runtime.Object) error {
 type watchHandler struct {
 	config
 	respSerializer *responseSerializer
-	triggerChan    chan struct{}
 	remaining      []byte
 }
 
@@ -221,7 +220,6 @@ func (h *watchHandler) handle(resp *http.Response) io.Reader {
 		klog.Errorf("Failed to new response serializer for list response error: %v", err)
 		return resp.Body
 	}
-	h.triggerChan = make(chan struct{}, 1)
 	return h
 }
 
@@ -243,7 +241,6 @@ func (h *watchHandler) Read(p []byte) (int, error) {
 	body, err := h.read()
 	if err != nil {
 		h.respSerializer.Release()
-		close(h.triggerChan)
 		return 0, err
 	}
 
@@ -264,16 +261,17 @@ func (h *watchHandler) read() ([]byte, error) {
 	var err error
 	var e *metav1.WatchEvent
 	var obj runtime.Object
+	triggerChan := make(chan struct{}, 1)
 	go func() {
 		e, obj, err = h.respSerializer.DecodeWatch()
-		h.triggerChan <- struct{}{}
+		close(triggerChan)
 	}()
 
 	ctx := h.httpReq.Context()
 	select {
 	case <-ctx.Done():
 		return nil, context.Canceled
-	case <-h.triggerChan:
+	case <-triggerChan:
 	}
 
 	if err != nil {
