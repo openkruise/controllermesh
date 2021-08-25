@@ -31,6 +31,10 @@ func (c *FakeCtrlmeshV1alpha1) ManagerStates() v1alpha1.ManagerStateInterface {
 	return &FakeManagerStates{c}
 }
 
+func (c *FakeCtrlmeshV1alpha1) TrafficPolicies(namespace string) v1alpha1.TrafficPolicyInterface {
+	return &FakeTrafficPolicies{c, namespace}
+}
+
 func (c *FakeCtrlmeshV1alpha1) VirtualApps(namespace string) v1alpha1.VirtualAppInterface {
 	return &FakeVirtualApps{c, namespace}
 }

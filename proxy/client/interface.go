@@ -33,7 +33,7 @@ var (
 
 type Client interface {
 	Start(ctx context.Context) error
-	GetProtoSpec() (*ctrlmeshproto.InternalRoute, []*ctrlmeshproto.Endpoint, *ctrlmeshproto.ControlInstruction, *ctrlmeshproto.SpecHash, time.Time)
+	GetProtoSpec() (*ctrlmeshproto.VAppMeta, *ctrlmeshproto.InternalRoute, []*ctrlmeshproto.Endpoint, *ctrlmeshproto.ControlInstruction, *ctrlmeshproto.SpecHash, time.Time)
 	GetProtoSpecSnapshot() *ProtoSpecSnapshot
 }
 

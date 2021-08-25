@@ -48,7 +48,7 @@ type router struct {
 }
 
 func (r *router) Route(req *admissionv1.AdmissionRequest) (*Accept, *Redirect, *Ignore, *Error) {
-	protoRoute, protoEndpoints, _, _, _ := r.proxyClient.GetProtoSpec()
+	_, protoRoute, protoEndpoints, _, _, _ := r.proxyClient.GetProtoSpec()
 	matchSubset, ok := protoRoute.DetermineNamespaceSubset(req.Namespace)
 	if !ok {
 		return nil, nil, &Ignore{}, nil

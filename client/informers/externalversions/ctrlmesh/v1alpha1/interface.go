@@ -25,6 +25,8 @@ import (
 type Interface interface {
 	// ManagerStates returns a ManagerStateInformer.
 	ManagerStates() ManagerStateInformer
+	// TrafficPolicies returns a TrafficPolicyInformer.
+	TrafficPolicies() TrafficPolicyInformer
 	// VirtualApps returns a VirtualAppInformer.
 	VirtualApps() VirtualAppInformer
 }
@@ -43,6 +45,11 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 // ManagerStates returns a ManagerStateInformer.
 func (v *version) ManagerStates() ManagerStateInformer {
 	return &managerStateInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// TrafficPolicies returns a TrafficPolicyInformer.
+func (v *version) TrafficPolicies() TrafficPolicyInformer {
+	return &trafficPolicyInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // VirtualApps returns a VirtualAppInformer.

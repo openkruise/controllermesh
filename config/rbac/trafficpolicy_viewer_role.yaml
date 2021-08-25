@@ -1,15 +1,20 @@
+# permissions for end users to view trafficpolicies.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
-  name: public-role
+  name: trafficpolicy-viewer-role
 rules:
 - apiGroups:
   - ctrlmesh.kruise.io
   resources:
-  - managerstates
   - trafficpolicies
   verbs:
   - get
   - list
   - watch
+- apiGroups:
+  - ctrlmesh.kruise.io
+  resources:
+  - trafficpolicies/status
+  verbs:
+  - get

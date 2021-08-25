@@ -21,6 +21,14 @@ package v1alpha1
 // ManagerStateLister.
 type ManagerStateListerExpansion interface{}
 
+// TrafficPolicyListerExpansion allows custom methods to be added to
+// TrafficPolicyLister.
+type TrafficPolicyListerExpansion interface{}
+
+// TrafficPolicyNamespaceListerExpansion allows custom methods to be added to
+// TrafficPolicyNamespaceLister.
+type TrafficPolicyNamespaceListerExpansion interface{}
+
 // VirtualAppListerExpansion allows custom methods to be added to
 // VirtualAppLister.
 type VirtualAppListerExpansion interface{}

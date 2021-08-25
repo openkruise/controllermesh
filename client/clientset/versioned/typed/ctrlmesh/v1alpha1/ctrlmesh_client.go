@@ -26,6 +26,7 @@ import (
 type CtrlmeshV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	ManagerStatesGetter
+	TrafficPoliciesGetter
 	VirtualAppsGetter
 }
 
@@ -36,6 +37,10 @@ type CtrlmeshV1alpha1Client struct {
 
 func (c *CtrlmeshV1alpha1Client) ManagerStates() ManagerStateInterface {
 	return newManagerStates(c)
+}
+
+func (c *CtrlmeshV1alpha1Client) TrafficPolicies(namespace string) TrafficPolicyInterface {
+	return newTrafficPolicies(c, namespace)
 }
 
 func (c *CtrlmeshV1alpha1Client) VirtualApps(namespace string) VirtualAppInterface {

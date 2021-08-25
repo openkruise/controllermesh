@@ -76,7 +76,7 @@ func (r *router) Route(httpReq *http.Request, reqInfo *request.RequestInfo) (*Ro
 		return nil, &Error{Code: http.StatusNotFound, Msg: fmt.Sprintf("failed to get gvr %v from discovery: %v", gvr, err)}
 	}
 
-	protoRoute, _, _, _, _ := r.proxyClient.GetProtoSpec()
+	_, protoRoute, _, _, _, _ := r.proxyClient.GetProtoSpec()
 	conf := &config{
 		httpReq:     httpReq,
 		reqInfo:     reqInfo,

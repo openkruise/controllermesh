@@ -19,4 +19,6 @@ package v1alpha1
 
 type ManagerStateExpansion interface{}
 
+type TrafficPolicyExpansion interface{}
+
 type VirtualAppExpansion interface{}

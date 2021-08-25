@@ -41,6 +41,7 @@ import (
 	"github.com/openkruise/controllermesh/client"
 	"github.com/openkruise/controllermesh/proxy/apiserver/router"
 	apiserverrouter "github.com/openkruise/controllermesh/proxy/apiserver/router"
+	trafficfilter "github.com/openkruise/controllermesh/proxy/filters/traffic"
 	leaderelectionproxy "github.com/openkruise/controllermesh/proxy/leaderelection"
 	"github.com/openkruise/controllermesh/util"
 	utilhttp "github.com/openkruise/controllermesh/util/http"
@@ -80,6 +81,7 @@ func NewProxy(opts *Options) (*Proxy, error) {
 	}
 
 	var handler http.Handler = inHandler
+	handler = trafficfilter.WithTrafficControl(handler, opts.ProxyClient)
 	handler = genericfilters.WithWaitGroup(handler, opts.LongRunningFunc, opts.HandlerChainWaitGroup)
 	handler = genericapifilters.WithRequestInfo(handler, opts.RequestInfoResolver)
 	handler = genericfilters.WithPanicRecovery(handler, opts.RequestInfoResolver)

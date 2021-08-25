@@ -47,6 +47,14 @@ type VirtualAppConfiguration struct {
 	Webhook    *VirtualAppWebhookConfiguration    `json:"webhook,omitempty"`
 }
 
+// VirtualAppRestConfigOverrides defines overrides to the application's rest config.
+type VirtualAppRestConfigOverrides struct {
+	// UserAgentOrPrefix can override the UserAgent of application.
+	// If it ends with '/', we consider it as prefix and will be add to the front of original UserAgent.
+	// Otherwise it will replace the original UserAgent.
+	UserAgentOrPrefix *string `json:"userAgentOrPrefix,omitempty"`
+}
+
 // VirtualAppControllerConfiguration defines the configuration of controller in this application.
 type VirtualAppControllerConfiguration struct {
 	LeaderElectionName string `json:"leaderElectionName"`

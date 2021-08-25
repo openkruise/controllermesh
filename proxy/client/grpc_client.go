@@ -41,6 +41,7 @@ type grpcClient struct {
 	informer cache.SharedIndexInformer
 	lister   ctrlmeshv1alpha1listers.ManagerStateLister
 
+	meta               *ctrlmeshproto.VAppMeta
 	route              *ctrlmeshproto.InternalRoute
 	endpoints          []*ctrlmeshproto.Endpoint
 	specHash           *ctrlmeshproto.SpecHash
@@ -235,9 +236,13 @@ func (c *grpcClient) recv(connStream ctrlmeshproto.ControllerMesh_RegisterClient
 		return nil
 	}
 
+	oldSpecHash := c.specHash
+	if c.meta != nil && spec.Meta != nil && c.meta.Name != spec.Meta.Name {
+		return fmt.Errorf("get VAppMeta name in spec changed %s -> %s", c.meta.Name, spec.Meta.Name)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	oldSpecHash := c.specHash
+	c.meta = spec.Meta
 	c.route = route
 	c.endpoints = spec.Endpoints
 	c.specHash = util.CalculateHashForProtoSpec(spec)
@@ -249,10 +254,10 @@ func (c *grpcClient) recv(connStream ctrlmeshproto.ControllerMesh_RegisterClient
 	return nil
 }
 
-func (c *grpcClient) GetProtoSpec() (*ctrlmeshproto.InternalRoute, []*ctrlmeshproto.Endpoint, *ctrlmeshproto.ControlInstruction, *ctrlmeshproto.SpecHash, time.Time) {
+func (c *grpcClient) GetProtoSpec() (*ctrlmeshproto.VAppMeta, *ctrlmeshproto.InternalRoute, []*ctrlmeshproto.Endpoint, *ctrlmeshproto.ControlInstruction, *ctrlmeshproto.SpecHash, time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.route, c.endpoints, c.controlInstruction, c.specHash, c.refreshTime
+	return c.meta, c.route, c.endpoints, c.controlInstruction, c.specHash, c.refreshTime
 }
 
 func (c *grpcClient) GetProtoSpecSnapshot() *ProtoSpecSnapshot {

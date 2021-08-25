@@ -1,0 +1,407 @@
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.4.1
+  creationTimestamp: null
+  name: trafficpolicies.ctrlmesh.kruise.io
+spec:
+  group: ctrlmesh.kruise.io
+  names:
+    kind: TrafficPolicy
+    listKind: TrafficPolicyList
+    plural: trafficpolicies
+    singular: trafficpolicy
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: TrafficPolicy is the Schema for the trafficpolicies API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: TrafficPolicySpec defines the desired state of TrafficPolicy
+            properties:
+              circuitBreaking:
+                description: TrafficCircuitBreaking defines policies that ctrlmesh-proxy
+                  should intercept the requests.
+                properties:
+                  apiServer:
+                    description: TrafficAPIServerRules contains rules for apiserver
+                      requests.
+                    properties:
+                      nonResourceRules:
+                        description: '`nonResourceRules` is a list of NonResourcePolicyRules
+                          that identify matching requests according to their verb
+                          and the target non-resource URL.'
+                        items:
+                          description: NonResourcePolicyRule is a predicate that matches
+                            non-resource requests according to their verb and the
+                            target non-resource URL. A NonResourcePolicyRule matches
+                            a request if and only if both (a) at least one member
+                            of verbs matches the request and (b) at least one member
+                            of nonResourceURLs matches the request.
+                          properties:
+                            nonResourceURLs:
+                              description: '`nonResourceURLs` is a set of url prefixes
+                                that a user should have access to and may not be empty.
+                                For example:   - "/healthz" is legal   - "/hea*" is
+                                illegal   - "/hea" is legal but matches nothing   -
+                                "/hea/*" also matches nothing   - "/healthz/*" matches
+                                all per-component health checks. "*" matches all non-resource
+                                urls. if it is present, it must be the only entry.
+                                Required.'
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: set
+                            verbs:
+                              description: '`verbs` is a list of matching verbs and
+                                may not be empty. "*" matches all verbs. If it is
+                                present, it must be the only entry. Required.'
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: set
+                          required:
+                          - nonResourceURLs
+                          - verbs
+                          type: object
+                        type: array
+                      resourceRules:
+                        description: '`resourceRules` is a slice of ResourcePolicyRules
+                          that identify matching requests according to their verb
+                          and the target resource. At least one of `resourceRules`
+                          and `nonResourceRules` has to be non-empty.'
+                        items:
+                          description: 'ResourcePolicyRule is a predicate that matches
+                            some resource requests, testing the request''s verb and
+                            the target resource. A ResourcePolicyRule matches a resource
+                            request if and only if: (a) at least one member of verbs
+                            matches the request, (b) at least one member of apiGroups
+                            matches the request, (c) at least one member of resources
+                            matches the request, and (d) least one member of namespaces
+                            matches the request.'
+                          properties:
+                            apiGroups:
+                              description: '`apiGroups` is a list of matching API
+                                groups and may not be empty. "*" matches all API groups
+                                and, if present, must be the only entry. Required.'
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: set
+                            clusterScope:
+                              description: '`clusterScope` indicates whether to match
+                                requests that do not specify a namespace (which happens
+                                either because the resource is not namespaced or the
+                                request targets all namespaces). If this field is
+                                omitted or false then the `namespaces` field must
+                                contain a non-empty list.'
+                              type: boolean
+                            namespaces:
+                              description: '`namespaces` is a list of target namespaces
+                                that restricts matches.  A request that specifies
+                                a target namespace matches only if either (a) this
+                                list contains that target namespace or (b) this list
+                                contains "*".  Note that "*" matches any specified
+                                namespace but does not match a request that _does
+                                not specify_ a namespace (see the `clusterScope` field
+                                for that). This list may be empty, but only if `clusterScope`
+                                is true.'
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: set
+                            resources:
+                              description: '`resources` is a list of matching resources
+                                (i.e., lowercase and plural) with, if desired, subresource.  For
+                                example, [ "services", "nodes/status" ].  This list
+                                may not be empty. "*" matches all resources and, if
+                                present, must be the only entry. Required.'
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: set
+                            verbs:
+                              description: '`verbs` is a list of matching verbs and
+                                may not be empty. "*" matches all verbs and, if present,
+                                must be the only entry. Required.'
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: set
+                          required:
+                          - apiGroups
+                          - resources
+                          - verbs
+                          type: object
+                        type: array
+                    type: object
+                  webhook:
+                    description: TrafficWebhookRules contains rules for webhook requests.
+                    properties:
+                      admissionRules:
+                        description: Rules describes what operations on what resources/subresources
+                          should be intercepted.
+                        items:
+                          description: RuleWithOperations is a tuple of Operations
+                            and Resources. It is recommended to make sure that all
+                            the tuple expansions are valid.
+                          properties:
+                            apiGroups:
+                              description: APIGroups is the API groups the resources
+                                belong to. '*' is all groups. If '*' is present, the
+                                length of the slice must be one. Required.
+                              items:
+                                type: string
+                              type: array
+                            apiVersions:
+                              description: APIVersions is the API versions the resources
+                                belong to. '*' is all versions. If '*' is present,
+                                the length of the slice must be one. Required.
+                              items:
+                                type: string
+                              type: array
+                            operations:
+                              description: Operations is the operations the admission
+                                hook cares about - CREATE, UPDATE, DELETE, CONNECT
+                                or * for all of those operations and any future admission
+                                operations that are added. If '*' is present, the
+                                length of the slice must be one. Required.
+                              items:
+                                type: string
+                              type: array
+                            resources:
+                              description: "Resources is a list of resources this
+                                rule applies to. \n For example: 'pods' means pods.
+                                'pods/log' means the log subresource of pods. '*'
+                                means all resources, but not subresources. 'pods/*'
+                                means all subresources of pods. '*/scale' means all
+                                scale subresources. '*/*' means all resources and
+                                their subresources. \n If wildcard is present, the
+                                validation rule will ensure resources do not overlap
+                                with each other. \n Depending on the enclosing object,
+                                subresources might not be allowed. Required."
+                              items:
+                                type: string
+                              type: array
+                            scope:
+                              description: scope specifies the scope of this rule.
+                                Valid values are "Cluster", "Namespaced", and "*"
+                                "Cluster" means that only cluster-scoped resources
+                                will match this rule. Namespace API objects are cluster-scoped.
+                                "Namespaced" means that only namespaced resources
+                                will match this rule. "*" means that there are no
+                                scope restrictions. Subresources match the scope of
+                                their parent resource. Default is "*".
+                              type: string
+                          type: object
+                        type: array
+                    type: object
+                type: object
+              rateLimiting:
+                properties:
+                  ratePolicies:
+                    items:
+                      properties:
+                        bucket:
+                          properties:
+                            burst:
+                              format: int32
+                              type: integer
+                            qps:
+                              format: int32
+                              type: integer
+                          required:
+                          - burst
+                          - qps
+                          type: object
+                        exponentialBackoff:
+                          properties:
+                            baseDelayInMillisecond:
+                              format: int32
+                              type: integer
+                            continuouslyFailureTimes:
+                              format: int32
+                              type: integer
+                            maxDelayInMillisecond:
+                              format: int32
+                              type: integer
+                          required:
+                          - baseDelayInMillisecond
+                          - maxDelayInMillisecond
+                          type: object
+                        maxInFlight:
+                          format: int32
+                          type: integer
+                        rules:
+                          description: TrafficAPIServerRules contains rules for apiserver
+                            requests.
+                          properties:
+                            nonResourceRules:
+                              description: '`nonResourceRules` is a list of NonResourcePolicyRules
+                                that identify matching requests according to their
+                                verb and the target non-resource URL.'
+                              items:
+                                description: NonResourcePolicyRule is a predicate
+                                  that matches non-resource requests according to
+                                  their verb and the target non-resource URL. A NonResourcePolicyRule
+                                  matches a request if and only if both (a) at least
+                                  one member of verbs matches the request and (b)
+                                  at least one member of nonResourceURLs matches the
+                                  request.
+                                properties:
+                                  nonResourceURLs:
+                                    description: '`nonResourceURLs` is a set of url
+                                      prefixes that a user should have access to and
+                                      may not be empty. For example:   - "/healthz"
+                                      is legal   - "/hea*" is illegal   - "/hea" is
+                                      legal but matches nothing   - "/hea/*" also
+                                      matches nothing   - "/healthz/*" matches all
+                                      per-component health checks. "*" matches all
+                                      non-resource urls. if it is present, it must
+                                      be the only entry. Required.'
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: set
+                                  verbs:
+                                    description: '`verbs` is a list of matching verbs
+                                      and may not be empty. "*" matches all verbs.
+                                      If it is present, it must be the only entry.
+                                      Required.'
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: set
+                                required:
+                                - nonResourceURLs
+                                - verbs
+                                type: object
+                              type: array
+                            resourceRules:
+                              description: '`resourceRules` is a slice of ResourcePolicyRules
+                                that identify matching requests according to their
+                                verb and the target resource. At least one of `resourceRules`
+                                and `nonResourceRules` has to be non-empty.'
+                              items:
+                                description: 'ResourcePolicyRule is a predicate that
+                                  matches some resource requests, testing the request''s
+                                  verb and the target resource. A ResourcePolicyRule
+                                  matches a resource request if and only if: (a) at
+                                  least one member of verbs matches the request, (b)
+                                  at least one member of apiGroups matches the request,
+                                  (c) at least one member of resources matches the
+                                  request, and (d) least one member of namespaces
+                                  matches the request.'
+                                properties:
+                                  apiGroups:
+                                    description: '`apiGroups` is a list of matching
+                                      API groups and may not be empty. "*" matches
+                                      all API groups and, if present, must be the
+                                      only entry. Required.'
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: set
+                                  clusterScope:
+                                    description: '`clusterScope` indicates whether
+                                      to match requests that do not specify a namespace
+                                      (which happens either because the resource is
+                                      not namespaced or the request targets all namespaces).
+                                      If this field is omitted or false then the `namespaces`
+                                      field must contain a non-empty list.'
+                                    type: boolean
+                                  namespaces:
+                                    description: '`namespaces` is a list of target
+                                      namespaces that restricts matches.  A request
+                                      that specifies a target namespace matches only
+                                      if either (a) this list contains that target
+                                      namespace or (b) this list contains "*".  Note
+                                      that "*" matches any specified namespace but
+                                      does not match a request that _does not specify_
+                                      a namespace (see the `clusterScope` field for
+                                      that). This list may be empty, but only if `clusterScope`
+                                      is true.'
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: set
+                                  resources:
+                                    description: '`resources` is a list of matching
+                                      resources (i.e., lowercase and plural) with,
+                                      if desired, subresource.  For example, [ "services",
+                                      "nodes/status" ].  This list may not be empty.
+                                      "*" matches all resources and, if present, must
+                                      be the only entry. Required.'
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: set
+                                  verbs:
+                                    description: '`verbs` is a list of matching verbs
+                                      and may not be empty. "*" matches all verbs
+                                      and, if present, must be the only entry. Required.'
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: set
+                                required:
+                                - apiGroups
+                                - resources
+                                - verbs
+                                type: object
+                              type: array
+                          type: object
+                      required:
+                      - rules
+                      type: object
+                    type: array
+                type: object
+              targetVirtualApps:
+                items:
+                  description: TrafficTargetVirtualApp is the target VirtualApp and
+                    its optional specific subsets.
+                  properties:
+                    name:
+                      type: string
+                    specificSubsets:
+                      items:
+                        type: string
+                      type: array
+                  required:
+                  - name
+                  type: object
+                type: array
+            required:
+            - targetVirtualApps
+            type: object
+          status:
+            description: TrafficPolicyStatus defines the observed state of TrafficPolicy
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []

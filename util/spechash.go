@@ -29,8 +29,8 @@ func CalculateHashForProtoSpec(spec *ctrlmeshproto.ProxySpec) *ctrlmeshproto.Spe
 		specHash.ResourceVersion = spec.Meta.ResourceVersion
 	}
 	if spec.Route != nil {
-		specHash.RouteHash = getMD5Hash(DumpJSON(spec.Route))
-		specHash.RouteStrictHash = getMD5Hash(DumpJSON(&ctrlmeshproto.Route{
+		specHash.RouteHash = GetMD5Hash(DumpJSON(spec.Route))
+		specHash.RouteStrictHash = GetMD5Hash(DumpJSON(&ctrlmeshproto.Route{
 			Subset:                  spec.Route.Subset,
 			GlobalLimits:            spec.Route.GlobalLimits,
 			GlobalExcludeNamespaces: spec.Route.GlobalExcludeNamespaces,
@@ -38,12 +38,12 @@ func CalculateHashForProtoSpec(spec *ctrlmeshproto.ProxySpec) *ctrlmeshproto.Spe
 		}))
 	}
 	if spec.Endpoints != nil {
-		specHash.EndpointsHash = getMD5Hash(DumpJSON(spec.Endpoints))
+		specHash.EndpointsHash = GetMD5Hash(DumpJSON(spec.Endpoints))
 	}
 	return specHash
 }
 
-func getMD5Hash(text string) string {
+func GetMD5Hash(text string) string {
 	hash := md5.Sum([]byte(text))
 	return hex.EncodeToString(hash[:])
 }

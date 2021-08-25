@@ -22,4 +22,12 @@ resources:
   kind: ManagerState
   path: github.com/openkruise/controllermesh/apis/ctrlmesh/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: kruise.io
+  group: ctrlmesh
+  kind: TrafficPolicy
+  path: github.com/openkruise/controllermesh/apis/ctrlmesh/v1alpha1
+  version: v1alpha1
 version: "3"
