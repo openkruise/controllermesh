@@ -19,6 +19,8 @@ package main
 import (
 	"flag"
 	"math/rand"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"time"
 
@@ -64,11 +66,13 @@ func init() {
 func main() {
 	var metricsAddr string
 	var probeAddr string
+	var pprofAddr string
 	var leaderElectionNamespace string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.StringVar(&leaderElectionNamespace, "leader-election-namespace", "ctrlmesh-system",
 		"This determines the namespace in which the leader election configmap will be created, it will use in-cluster namespace if empty.")
+	flag.StringVar(&pprofAddr, "pprof-address", ":8090", "The address the pprof binds to.")
 
 	klog.InitFlags(nil)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
@@ -76,9 +80,15 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 	ctrl.SetLogger(klogr.New())
 
+	go func() {
+		if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+			setupLog.Error(err, "unable to start pprof")
+		}
+	}()
+
 	cfg := ctrl.GetConfigOrDie()
 	setRestConfig(cfg)
-	cfg.UserAgent = "kruise-manager"
+	cfg.UserAgent = "ctrlmesh-manager"
 	if err := client.NewRegistry(cfg); err != nil {
 		setupLog.Error(err, "unable to init kruise clientset and informer")
 		os.Exit(1)

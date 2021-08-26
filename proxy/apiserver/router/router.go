@@ -65,6 +65,10 @@ func (r *router) Route(httpReq *http.Request, reqInfo *request.RequestInfo) (*Ro
 	if !reqInfo.IsResourceRequest {
 		return &RouteAccept{}, nil
 	}
+	_, protoRoute, _, _, _, _ := r.proxyClient.GetProtoSpec()
+	if protoRoute.IsDefaultEmpty() {
+		return &RouteAccept{}, nil
+	}
 
 	gvr := schema.GroupVersionResource{Group: reqInfo.APIGroup, Version: reqInfo.APIVersion, Resource: reqInfo.Resource}
 	apiResource, err := utildiscovery.DiscoverGVR(gvr)
@@ -76,7 +80,6 @@ func (r *router) Route(httpReq *http.Request, reqInfo *request.RequestInfo) (*Ro
 		return nil, &Error{Code: http.StatusNotFound, Msg: fmt.Sprintf("failed to get gvr %v from discovery: %v", gvr, err)}
 	}
 
-	_, protoRoute, _, _, _, _ := r.proxyClient.GetProtoSpec()
 	conf := &config{
 		httpReq:     httpReq,
 		reqInfo:     reqInfo,
@@ -117,10 +120,6 @@ func (h *listHandler) handle(resp *http.Response) error {
 	if resp.StatusCode < http.StatusOK || resp.StatusCode > http.StatusPartialContent {
 		return nil
 	}
-	// TODO: enable these lines
-	//if protoRoute.IsDefaultEmpty() {
-	//	return nil
-	//}
 
 	respSerializer, err := newResponseSerializer(resp, h.apiResource, h.reqInfo, false)
 	if err != nil {
