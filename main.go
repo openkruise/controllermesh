@@ -63,6 +63,8 @@ func init() {
 	//+kubebuilder:scaffold:scheme
 }
 
+// +kubebuilder:rbac:groups=core,resources=events,verbs=get;list;watch;create;update;patch;delete
+
 func main() {
 	var metricsAddr string
 	var probeAddr string

@@ -115,6 +115,10 @@ func (h *namespaceEventHandler) Update(e event.UpdateEvent, q workqueue.RateLimi
 
 	vApps := h.getSensitiveVApps()
 	for _, vApp := range vApps {
+		if vApp.Spec.Route == nil {
+			continue
+		}
+
 		var diff bool
 		for _, ms := range vApp.Spec.Route.GlobalLimits {
 			oldMatch, _ := ms.IsNamespaceMatched(oldNS)

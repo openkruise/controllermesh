@@ -46,18 +46,24 @@ func determinePodSubset(vApp *ctrlmeshv1alpha1.VirtualApp, pod *v1.Pod) string {
 }
 
 func generateProtoRoute(vApp *ctrlmeshv1alpha1.VirtualApp, namespaces []*v1.Namespace) map[string]*ctrlmeshproto.Route {
-	globalLimits := vApp.Spec.Route.GlobalLimits
-	subRules := vApp.Spec.Route.SubRules
+	var globalLimits []ctrlmeshv1alpha1.MatchLimitSelector
+	var subRules []ctrlmeshv1alpha1.VirtualAppRouteSubRule
+	if vApp.Spec.Route != nil {
+		globalLimits = vApp.Spec.Route.GlobalLimits
+		subRules = vApp.Spec.Route.SubRules
+	}
 	sort.SliceStable(subRules, func(i, j int) bool { return subRules[i].Name < subRules[j].Name })
 	subsets := vApp.Spec.Subsets
 	sort.SliceStable(subsets, func(i, j int) bool { return subsets[i].Name < subsets[j].Name })
 
 	routesForAllSubsets := make(map[string]*ctrlmeshproto.Route, len(vApp.Spec.Subsets)+1)
 
-	rulesMap := make(map[string][]ctrlmeshv1alpha1.MatchLimitSelector, len(vApp.Spec.Route.SubRules))
-	for i := range vApp.Spec.Route.SubRules {
-		r := &vApp.Spec.Route.SubRules[i]
-		rulesMap[r.Name] = r.Match
+	rulesMap := make(map[string][]ctrlmeshv1alpha1.MatchLimitSelector, len(subRules))
+	if vApp.Spec.Route != nil {
+		for i := range vApp.Spec.Route.SubRules {
+			r := &vApp.Spec.Route.SubRules[i]
+			rulesMap[r.Name] = r.Match
+		}
 	}
 
 	globalExcludeNamespaces := sets.NewString()

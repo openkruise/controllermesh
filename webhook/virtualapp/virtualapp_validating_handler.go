@@ -70,9 +70,9 @@ func validate(obj *ctrlmeshv1alpha1.VirtualApp) error {
 		return fmt.Errorf("invalid selector can not be empty")
 	}
 
-	if len(obj.Spec.Route.SubRules) > 0 || len(obj.Spec.Subsets) > 0 {
+	if len(obj.Spec.Subsets) > 0 {
 		if obj.Spec.Configuration.Controller == nil && obj.Spec.Configuration.Webhook == nil {
-			return fmt.Errorf("must set controller or webhook in configuration, for multiple rules or subsets defined")
+			return fmt.Errorf("must set controller or webhook in configuration, for subsets defined")
 		}
 	}
 
@@ -91,35 +91,37 @@ func validate(obj *ctrlmeshv1alpha1.VirtualApp) error {
 	}
 
 	subRules := sets.NewString()
-	for i := range obj.Spec.Route.SubRules {
-		r := &obj.Spec.Route.SubRules[i]
-		if r.Name == "" {
-			return fmt.Errorf("empty subRule name")
-		}
-		if subRules.Has(r.Name) {
-			return fmt.Errorf("duplicated %s in subRules", r.Name)
-		}
-		if len(r.Match) == 0 {
-			return fmt.Errorf("no match defined in subRule %s", r.Name)
-		}
-		for _, m := range r.Match {
-			switch {
-			case m.NamespaceSelector != nil:
-				if _, err := metav1.LabelSelectorAsSelector(m.NamespaceSelector); err != nil {
-					return fmt.Errorf("parse namespaceSelector error: %v", err)
-				}
-			case m.NamespaceRegex != nil:
-				if _, err := regexp.Compile(*m.NamespaceRegex); err != nil {
-					return fmt.Errorf("parse namespaceRegex error: %v", err)
-				}
-			default:
-				return fmt.Errorf("empty match defined in subRule %s", r.Name)
+	if obj.Spec.Route != nil {
+		for i := range obj.Spec.Route.SubRules {
+			r := &obj.Spec.Route.SubRules[i]
+			if r.Name == "" {
+				return fmt.Errorf("empty subRule name")
 			}
-			if m.NamespaceSelector != nil && m.NamespaceRegex != nil {
-				return fmt.Errorf("invalid match defined in subRule %s", r.Name)
+			if subRules.Has(r.Name) {
+				return fmt.Errorf("duplicated %s in subRules", r.Name)
 			}
+			if len(r.Match) == 0 {
+				return fmt.Errorf("no match defined in subRule %s", r.Name)
+			}
+			for _, m := range r.Match {
+				switch {
+				case m.NamespaceSelector != nil:
+					if _, err := metav1.LabelSelectorAsSelector(m.NamespaceSelector); err != nil {
+						return fmt.Errorf("parse namespaceSelector error: %v", err)
+					}
+				case m.NamespaceRegex != nil:
+					if _, err := regexp.Compile(*m.NamespaceRegex); err != nil {
+						return fmt.Errorf("parse namespaceRegex error: %v", err)
+					}
+				default:
+					return fmt.Errorf("empty match defined in subRule %s", r.Name)
+				}
+				if m.NamespaceSelector != nil && m.NamespaceRegex != nil {
+					return fmt.Errorf("invalid match defined in subRule %s", r.Name)
+				}
+			}
+			subRules.Insert(r.Name)
 		}
-		subRules.Insert(r.Name)
 	}
 
 	subsets := sets.NewString()
