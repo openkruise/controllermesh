@@ -171,7 +171,7 @@ func (h *namespaceEventHandler) getSensitiveVApps() []*ctrlmeshv1alpha1.VirtualA
 	var vApps []*ctrlmeshv1alpha1.VirtualApp
 	for i := range vAppList.Items {
 		vApp := &vAppList.Items[i]
-		if len(vApp.Spec.Route.GlobalLimits) == 0 && len(vApp.Spec.Route.SubRules) == 0 {
+		if vApp.Spec.Route == nil || (len(vApp.Spec.Route.GlobalLimits) == 0 && len(vApp.Spec.Route.SubRules) == 0) {
 			continue
 		}
 		vApps = append(vApps, vApp)
