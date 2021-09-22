@@ -72,7 +72,7 @@ func generateProtoRoute(vApp *ctrlmeshv1alpha1.VirtualApp, namespaces []*v1.Name
 			if globalExcludeNamespaces.Has(ns.Name) {
 				continue
 			}
-			if match, _ := ms.IsNamespaceMatched(ns); match {
+			if match, _ := ms.IsNamespaceMatched(ns); !match {
 				globalExcludeNamespaces.Insert(ns.Name)
 			}
 		}
