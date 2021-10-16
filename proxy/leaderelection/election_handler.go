@@ -23,20 +23,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openkruise/controllermesh/apis/ctrlmesh/constants"
-
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/klog/v2"
-
-	proxyclient "github.com/openkruise/controllermesh/proxy/client"
-	clientset "k8s.io/client-go/kubernetes"
-
 	coordinationv1 "k8s.io/api/coordination/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apiserver/pkg/endpoints/request"
+	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
+
+	"github.com/openkruise/controllermesh/apis/ctrlmesh/constants"
+	proxyclient "github.com/openkruise/controllermesh/proxy/client"
+	"github.com/openkruise/controllermesh/util"
 )
 
 var runtimeScheme = runtime.NewScheme()
@@ -147,7 +146,7 @@ func (h *handler) Handle(req *request.RequestInfo, r *http.Request) (bool, *Erro
 		if h.routeSnapshot.Route.Subset != "" {
 			name := setSubsetIntoName(h.lockName, h.routeSnapshot.Route.Subset)
 			adp.SetName(name)
-			r.URL.Path = strings.Replace(r.URL.Path, h.lockName, name, -1)
+			r.URL.Path = util.LastReplace(r.URL.Path, h.lockName, name)
 		}
 
 		adp.EncodeInto(r)
@@ -165,7 +164,7 @@ func (h *handler) Handle(req *request.RequestInfo, r *http.Request) (bool, *Erro
 			return true, &Error{Code: http.StatusNotAcceptable, Err: fmt.Errorf("blocking leader election")}
 		}
 		if h.routeSnapshot.Route.Subset != "" {
-			r.URL.Path = strings.Replace(r.URL.Path, h.lockName, setSubsetIntoName(h.lockName, h.routeSnapshot.Route.Subset), -1)
+			r.URL.Path = util.LastReplace(r.URL.Path, h.lockName, setSubsetIntoName(h.lockName, h.routeSnapshot.Route.Subset))
 		}
 		return true, nil
 
