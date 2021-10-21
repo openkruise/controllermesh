@@ -198,12 +198,16 @@ func (s *responseSerializer) EncodeList(obj runtime.Object) (io.ReadCloser, int,
 	if s.gzipWriter != nil {
 		s.gzipWriter.Reset(s.buf)
 		w = s.gzipWriter
-		defer s.gzipWriter.Close()
 	}
 
 	if err := s.encoder.Encode(obj, w); err != nil {
 		return nil, 0, err
 	}
+
+	if s.gzipWriter != nil {
+		s.gzipWriter.Close()
+	}
+
 	return &serializerReaderCloser{Reader: s.buf, serializer: s}, s.buf.Len(), nil
 }
 
