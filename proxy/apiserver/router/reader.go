@@ -17,6 +17,7 @@ limitations under the License.
 package router
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -58,21 +59,21 @@ func (r *ioReader) readOnce() ([]byte, error) {
 	return body, nil
 }
 
-func (r *ioReader) readStreaming(buf []byte) (int, error) {
+func (r *ioReader) readStreaming(buf *bytes.Buffer) (n int, err error) {
 	base := 0
 	for {
-		n, err := r.reader.Read(buf[base:])
+		n, err := r.reader.Read(buf.Bytes()[base:buf.Cap()])
 		if err == io.ErrShortBuffer {
 			if n == 0 {
-				return base, fmt.Errorf("got short buffer with n=0, base=%d, cap=%d", base, cap(buf))
+				return base, fmt.Errorf("got short buffer with n=0, base=%d, cap=%d", base, buf.Cap())
 			}
 			if r.resetRead {
 				continue
 			}
 			// double the buffer size up to maxBytes
-			if len(buf) < maxBufferBytes {
+			if len(buf.Bytes()[:buf.Cap()]) < maxBufferBytes {
 				base += n
-				buf = append(buf, make([]byte, len(buf))...)
+				buf.Grow(len(buf.Bytes()[:buf.Cap()]))
 				continue
 			}
 			// must read the rest of the frame (until we stop getting ErrShortBuffer)

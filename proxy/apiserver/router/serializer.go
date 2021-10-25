@@ -209,7 +209,7 @@ func (s *responseSerializer) EncodeList(obj runtime.Object) (io.ReadCloser, int,
 
 func (s *responseSerializer) DecodeWatch() (*metav1.WatchEvent, runtime.Object, error) {
 	s.resetBuf()
-	n, err := s.reader.readStreaming(s.buf.Bytes()[:s.buf.Cap()])
+	n, err := s.reader.readStreaming(s.buf)
 	if err != nil {
 		return nil, nil, err
 	}
