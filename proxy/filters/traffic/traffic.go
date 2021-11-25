@@ -17,8 +17,10 @@ limitations under the License.
 package traffic
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -75,14 +77,20 @@ type trafficControlHandler struct {
 }
 
 func (h *trafficControlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	meta, protoRoute, _, _, _, _ := h.proxyClient.GetProtoSpec()
-	if meta == nil {
+	snapshot := h.proxyClient.GetProtoSpecSnapshot()
+	protoSpec, _, err := snapshot.AcquireSpec()
+	if err != nil {
 		h.handler.ServeHTTP(w, r)
 		return
 	}
-	policies, err := h.getTrafficPolicies(meta.Name, protoRoute.Subset)
+	snapshot.ReleaseSpec()
+	policies, err := h.getTrafficPolicies(protoSpec.Meta.VAppName, protoSpec.RouteInternal.Subset)
 	if err != nil {
 		klog.Errorf("Failed to get trafficpolicies from lister: %v", err)
+		h.handler.ServeHTTP(w, r)
+		return
+	}
+	if len(policies) == 0 {
 		h.handler.ServeHTTP(w, r)
 		return
 	}
@@ -182,6 +190,11 @@ type responseWriterWrapper struct {
 	status         int32
 }
 
+// Header implements http.ResponseWriter.
+func (r *responseWriterWrapper) Header() http.Header {
+	return r.ResponseWriter.Header()
+}
+
 // Write implements http.ResponseWriter.
 func (r *responseWriterWrapper) Write(b []byte) (int, error) {
 	if !r.statusRecorded {
@@ -199,4 +212,25 @@ func (r *responseWriterWrapper) WriteHeader(status int) {
 func (r *responseWriterWrapper) recordStatus(status int) {
 	atomic.StoreInt32(&r.status, int32(status))
 	r.statusRecorded = true
+}
+
+// Flush implements http.Flusher even if the underlying http.Writer doesn't implement it.
+// Flush is used for streaming purposes and allows to flush buffered data to the client.
+func (r *responseWriterWrapper) Flush() {
+	if flusher, ok := r.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	} else if klog.V(2).Enabled() {
+		klog.InfoDepth(1, fmt.Sprintf("Unable to convert %T into http.Flusher", r.ResponseWriter))
+	}
+}
+
+// Hijack implements http.Hijacker.
+func (r *responseWriterWrapper) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return r.ResponseWriter.(http.Hijacker).Hijack()
+}
+
+// CloseNotify implements http.CloseNotifier
+func (r *responseWriterWrapper) CloseNotify() <-chan bool {
+	//lint:ignore SA1019 There are places in the code base requiring the CloseNotifier interface to be implemented.
+	return r.ResponseWriter.(http.CloseNotifier).CloseNotify()
 }

@@ -33,7 +33,6 @@ import (
 	"k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/klog/v2"
 
-	ctrlmeshproto "github.com/openkruise/controllermesh/apis/ctrlmesh/proto"
 	proxyclient "github.com/openkruise/controllermesh/proxy/client"
 	"github.com/openkruise/controllermesh/util"
 	utildiscovery "github.com/openkruise/controllermesh/util/discovery"
@@ -65,8 +64,14 @@ func (r *router) Route(httpReq *http.Request, reqInfo *request.RequestInfo) (*Ro
 	if !reqInfo.IsResourceRequest {
 		return &RouteAccept{}, nil
 	}
-	_, protoRoute, _, _, _, _ := r.proxyClient.GetProtoSpec()
-	if protoRoute.IsDefaultEmpty() {
+
+	snapshot := r.proxyClient.GetProtoSpecSnapshot()
+	protoSpec, _, err := snapshot.AcquireSpec()
+	if err != nil {
+		return nil, &Error{Code: http.StatusExpectationFailed, Msg: "route snapshot exceeded changed"}
+	}
+	defer snapshot.ReleaseSpec()
+	if protoSpec.RouteInternal.IsDefaultAndEmpty() {
 		return &RouteAccept{}, nil
 	}
 
@@ -80,25 +85,26 @@ func (r *router) Route(httpReq *http.Request, reqInfo *request.RequestInfo) (*Ro
 		return nil, &Error{Code: http.StatusNotFound, Msg: fmt.Sprintf("failed to get gvr %v from discovery: %v", gvr, err)}
 	}
 
-	conf := &config{
-		httpReq:     httpReq,
-		reqInfo:     reqInfo,
-		apiResource: apiResource,
-		protoRoute:  protoRoute,
-	}
 	switch reqInfo.Verb {
-	case "list":
-		handler := &listHandler{config: *conf}
-		return &RouteAccept{ModifyResponse: handler.handle}, nil
+	case "list", "watch":
+		conf := &config{
+			httpReq:       httpReq,
+			reqInfo:       reqInfo,
+			groupResource: gvr.GroupResource(),
+			apiResource:   apiResource,
+			snapshot:      snapshot,
+		}
 
-	case "watch":
+		if reqInfo.Verb == "list" {
+			handler := &listHandler{config: *conf}
+			return &RouteAccept{ModifyResponse: handler.handle}, nil
+		}
 		handler := &watchHandler{config: *conf}
 		return &RouteAccept{ModifyBody: handler.handle}, nil
-
 	default:
 	}
 
-	if !protoRoute.IsNamespaceMatch(reqInfo.Namespace) {
+	if !protoSpec.RouteInternal.IsNamespaceMatch(reqInfo.Namespace, gvr.GroupResource()) {
 		return nil, &Error{Code: http.StatusForbidden, Msg: "not match subset rules"}
 	}
 
@@ -106,10 +112,11 @@ func (r *router) Route(httpReq *http.Request, reqInfo *request.RequestInfo) (*Ro
 }
 
 type config struct {
-	httpReq     *http.Request
-	reqInfo     *request.RequestInfo
-	apiResource *metav1.APIResource
-	protoRoute  *ctrlmeshproto.InternalRoute
+	httpReq       *http.Request
+	reqInfo       *request.RequestInfo
+	groupResource schema.GroupResource
+	apiResource   *metav1.APIResource
+	snapshot      *proxyclient.ProtoSpecSnapshot
 }
 
 type listHandler struct {
@@ -154,6 +161,16 @@ func (h *listHandler) handle(resp *http.Response) error {
 }
 
 func (h *listHandler) filterItems(list runtime.Object) error {
+	protoSpec, _, err := h.snapshot.AcquireSpec()
+	if err != nil {
+		return err
+	}
+	var allowedNamespaces []string
+	var deniedNamespaces []string
+	defer func() {
+		h.snapshot.RecordNamespace(allowedNamespaces, deniedNamespaces)
+		h.snapshot.ReleaseSpec()
+	}()
 	if unstructuredObj, ok := list.(*unstructured.Unstructured); ok {
 		itemsField, ok := unstructuredObj.Object["items"]
 		if !ok {
@@ -170,10 +187,17 @@ func (h *listHandler) filterItems(list runtime.Object) error {
 				return fmt.Errorf("items member is not an object: %T", child)
 			}
 			childObj := &unstructured.Unstructured{Object: child}
-			if h.protoRoute.IsNamespaceMatch(childObj.GetNamespace()) {
+			ns := childObj.GetNamespace()
+			if protoSpec.RouteInternal.IsNamespaceMatch(ns, h.groupResource) {
 				newItems = append(newItems, item)
+				if ns != "" {
+					allowedNamespaces = append(allowedNamespaces, ns)
+				}
 			} else {
-				klog.V(5).Infof("Filter out list item %s/%s for %v", childObj.GetNamespace(), childObj.GetName(), util.DumpJSON(h.reqInfo))
+				klog.V(5).Infof("Filter out list item %s/%s for %v", ns, childObj.GetName(), util.DumpJSON(h.reqInfo))
+				if ns != "" {
+					deniedNamespaces = append(deniedNamespaces, ns)
+				}
 			}
 		}
 		unstructuredObj.Object["items"] = newItems
@@ -193,10 +217,17 @@ func (h *listHandler) filterItems(list runtime.Object) error {
 			newObjs = append(newObjs, o)
 			continue
 		}
-		if h.protoRoute.IsNamespaceMatch(meta.GetNamespace()) {
+		ns := meta.GetNamespace()
+		if protoSpec.RouteInternal.IsNamespaceMatch(ns, h.groupResource) {
 			newObjs = append(newObjs, o)
+			if ns != "" {
+				allowedNamespaces = append(allowedNamespaces, ns)
+			}
 		} else {
-			klog.V(5).Infof("Filter out list item %s/%s for %v", meta.GetNamespace(), meta.GetName(), util.DumpJSON(h.reqInfo))
+			klog.V(5).Infof("Filter out list item %s/%s for %v", ns, meta.GetName(), util.DumpJSON(h.reqInfo))
+			if ns != "" {
+				deniedNamespaces = append(deniedNamespaces, ns)
+			}
 		}
 	}
 
@@ -283,7 +314,9 @@ func (h *watchHandler) read() ([]byte, error) {
 
 	// obj will be nil if the event type is BOOKMARK or ERROR
 	if obj != nil {
-		h.filterEvent(e, obj)
+		if err := h.filterEvent(e, obj); err != nil {
+			return nil, err
+		}
 	}
 
 	body, err := h.respSerializer.EncodeWatch(e)
@@ -294,13 +327,23 @@ func (h *watchHandler) read() ([]byte, error) {
 	return body, nil
 }
 
-func (h *watchHandler) filterEvent(e *metav1.WatchEvent, obj runtime.Object) {
+func (h *watchHandler) filterEvent(e *metav1.WatchEvent, obj runtime.Object) error {
 	meta, err := apimeta.Accessor(obj)
 	if err != nil {
-		return
+		return err
 	}
-	if !h.protoRoute.IsNamespaceMatch(meta.GetNamespace()) {
+	protoSpec, _, err := h.snapshot.AcquireSpec()
+	if err != nil {
+		return err
+	}
+	defer h.snapshot.ReleaseSpec()
+	ns := meta.GetNamespace()
+	if !protoSpec.RouteInternal.IsNamespaceMatch(ns, h.groupResource) {
 		e.Type = string(watch.Bookmark)
-		klog.V(5).Infof("Filter out watch item %s/%s for %v", meta.GetNamespace(), meta.GetName(), util.DumpJSON(h.reqInfo))
+		klog.V(5).Infof("Filter out watch item %s/%s for %v", ns, meta.GetName(), util.DumpJSON(h.reqInfo))
+		h.snapshot.RecordNamespace(nil, []string{ns})
+	} else {
+		h.snapshot.RecordNamespace([]string{ns}, nil)
 	}
+	return nil
 }

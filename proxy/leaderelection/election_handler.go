@@ -77,7 +77,7 @@ type handler struct {
 	lastTranslationTime time.Time
 }
 
-func (h *handler) Handle(req *request.RequestInfo, r *http.Request) (bool, *Error) {
+func (h *handler) Handle(req *request.RequestInfo, r *http.Request) (handled bool, retErr *Error) {
 	if !req.IsResourceRequest || req.Subresource != "" {
 		return false, nil
 	}
@@ -99,17 +99,13 @@ func (h *handler) Handle(req *request.RequestInfo, r *http.Request) (bool, *Erro
 	default:
 		return false, nil
 	}
-	klog.V(5).Infof("Handling %s resource lock %s %s", req.Verb, req.Resource, req.Name)
-
-	var isStrictHashChanged bool
-	select {
-	case <-h.routeSnapshot.Ctx.Done():
-		klog.Infof("Preparing to reject leader election for route snapshot with strict hash %s canceled.", h.routeSnapshot.SpecHash.RouteStrictHash)
-		isStrictHashChanged = true
-	default:
-		h.routeSnapshot.Mutex.Lock()
-		defer h.routeSnapshot.Mutex.Unlock()
-	}
+	defer func() {
+		if retErr != nil {
+			klog.Warningf("Error handling %s resource lock %s %s, %+v", req.Verb, req.Resource, req.Name, retErr)
+		} else {
+			klog.V(6).Infof("Successfully handling %s resource lock %s %s", req.Verb, req.Resource, req.Name)
+		}
+	}()
 
 	switch req.Verb {
 
@@ -132,21 +128,24 @@ func (h *handler) Handle(req *request.RequestInfo, r *http.Request) (bool, *Erro
 			h.lastTranslationTime = time.Now()
 		}()
 
-		if isStrictHashChanged {
-			if h.identity != holdIdentity && h.lastTranslationTime.After(h.routeSnapshot.RefreshTime) {
-				close(h.routeSnapshot.Closed)
+		protoSpec, refreshTime, err := h.routeSnapshot.AcquireSpec()
+		if err != nil {
+			if h.identity != holdIdentity && h.lastTranslationTime.After(refreshTime) {
 				h.routeSnapshot = h.proxyClient.GetProtoSpecSnapshot()
-				klog.Infof("Starting route strict hash %s with a new Leader Election ID %s", h.routeSnapshot.SpecHash.RouteStrictHash, holdIdentity)
+				klog.Infof("Starting new proto spec with new Leader Election ID %s", holdIdentity)
 				// still reject, for next trusted get
+			} else {
+				klog.V(5).Infof("Find snapshot exceeded, waiting for re-elect, last identity: %v, current identity: %v, last translation time: %v, snapshot refreshTime: %v",
+					h.identity, holdIdentity, h.lastTranslationTime, refreshTime)
 			}
 			// it means this identity may have ListWatch of old hash
-			return true, &Error{Code: http.StatusExpectationFailed, Err: fmt.Errorf("strict hash changed")}
+			return true, &Error{Code: http.StatusExpectationFailed, Err: fmt.Errorf("snapshot exceeded")}
 		}
+		defer h.routeSnapshot.ReleaseSpec()
 
-		if h.routeSnapshot.Route.Subset != "" {
-			name := setSubsetIntoName(h.lockName, h.routeSnapshot.Route.Subset)
+		if protoSpec.Route.Subset != "" {
+			name := setSubsetIntoName(h.lockName, protoSpec.Route.Subset)
 			adp.SetName(name)
-			r.URL.Path = util.LastReplace(r.URL.Path, h.lockName, name)
 		}
 
 		adp.EncodeInto(r)
@@ -157,14 +156,18 @@ func (h *handler) Handle(req *request.RequestInfo, r *http.Request) (bool, *Erro
 		return true, nil
 
 	case "get":
-		if isStrictHashChanged {
-			return true, &Error{Code: http.StatusNotFound, Err: fmt.Errorf("fake not found for strict hash changed")}
+		protoSpec, _, err := h.routeSnapshot.AcquireSpec()
+		if err != nil {
+			klog.Warningf("Rejecting election get for route snapshot exceeded")
+			return true, &Error{Code: http.StatusNotFound, Err: fmt.Errorf("fake not found for route snapshot exceeded")}
 		}
-		if h.routeSnapshot.ControlInstruction != nil && h.routeSnapshot.ControlInstruction.BlockLeaderElection {
+		defer h.routeSnapshot.ReleaseSpec()
+
+		if protoSpec.ControlInstruction != nil && protoSpec.ControlInstruction.BlockLeaderElection {
 			return true, &Error{Code: http.StatusNotAcceptable, Err: fmt.Errorf("blocking leader election")}
 		}
-		if h.routeSnapshot.Route.Subset != "" {
-			r.URL.Path = util.LastReplace(r.URL.Path, h.lockName, setSubsetIntoName(h.lockName, h.routeSnapshot.Route.Subset))
+		if protoSpec.Route.Subset != "" {
+			r.URL.Path = util.LastReplace(r.URL.Path, h.lockName, setSubsetIntoName(h.lockName, protoSpec.Route.Subset))
 		}
 		return true, nil
 

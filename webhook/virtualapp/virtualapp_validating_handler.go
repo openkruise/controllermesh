@@ -92,6 +92,11 @@ func validate(obj *ctrlmeshv1alpha1.VirtualApp) error {
 
 	subRules := sets.NewString()
 	if obj.Spec.Route != nil {
+		for _, m := range obj.Spec.Route.GlobalLimits {
+			if err := validateMatchLimitSelector(m); err != nil {
+				return fmt.Errorf("%s in globalLimits", err)
+			}
+		}
 		for i := range obj.Spec.Route.SubRules {
 			r := &obj.Spec.Route.SubRules[i]
 			if r.Name == "" {
@@ -104,20 +109,8 @@ func validate(obj *ctrlmeshv1alpha1.VirtualApp) error {
 				return fmt.Errorf("no match defined in subRule %s", r.Name)
 			}
 			for _, m := range r.Match {
-				switch {
-				case m.NamespaceSelector != nil:
-					if _, err := metav1.LabelSelectorAsSelector(m.NamespaceSelector); err != nil {
-						return fmt.Errorf("parse namespaceSelector error: %v", err)
-					}
-				case m.NamespaceRegex != nil:
-					if _, err := regexp.Compile(*m.NamespaceRegex); err != nil {
-						return fmt.Errorf("parse namespaceRegex error: %v", err)
-					}
-				default:
-					return fmt.Errorf("empty match defined in subRule %s", r.Name)
-				}
-				if m.NamespaceSelector != nil && m.NamespaceRegex != nil {
-					return fmt.Errorf("invalid match defined in subRule %s", r.Name)
+				if err := validateMatchLimitSelector(m); err != nil {
+					return fmt.Errorf("%s in subRule %s", err, r.Name)
 				}
 			}
 			subRules.Insert(r.Name)
@@ -153,6 +146,25 @@ func validate(obj *ctrlmeshv1alpha1.VirtualApp) error {
 		}
 	}
 
+	return nil
+}
+
+func validateMatchLimitSelector(m ctrlmeshv1alpha1.MatchLimitSelector) error {
+	switch {
+	case m.NamespaceSelector != nil:
+		if _, err := metav1.LabelSelectorAsSelector(m.NamespaceSelector); err != nil {
+			return fmt.Errorf("parse namespaceSelector error: %v", err)
+		}
+	case m.NamespaceRegex != nil:
+		if _, err := regexp.Compile(*m.NamespaceRegex); err != nil {
+			return fmt.Errorf("parse namespaceRegex error: %v", err)
+		}
+	default:
+		return fmt.Errorf("empty match limit selector")
+	}
+	if m.NamespaceSelector != nil && m.NamespaceRegex != nil {
+		return fmt.Errorf("invalid match limit selector")
+	}
 	return nil
 }
 

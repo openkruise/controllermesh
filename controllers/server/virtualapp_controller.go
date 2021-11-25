@@ -19,12 +19,13 @@ package server
 import (
 	"context"
 	"flag"
+	"sort"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,9 +41,7 @@ import (
 
 var (
 	concurrentReconciles = flag.Int("ctrlmesh-server-workers", 3, "Max concurrent workers for CtrlMesh Server controller.")
-	//controllerKind       = ctrlmeshv1alpha1.SchemeGroupVersion.WithKind("VirtualOperator")
-
-	randToken = rand.String(10)
+	//controllerKind       = ctrlmeshv1alpha1.SchemeGroupVersion.WithKind("VirtualApp")
 )
 
 type VirtualAppReconciler struct {
@@ -97,11 +96,11 @@ func (r *VirtualAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return reconcile.Result{}, err
 	}
 
-	protoRouteMap := generateProtoRoute(vApp, namespaces)
+	protoRoute := generateProtoRoute(vApp, namespaces)
 	protoEndpoints := generateProtoEndpoints(vApp, pods)
 
-	var existsOldStrictHash bool
-	var podSpecsList []podSpecs
+	// build diffStateForPods
+	var diffStateForPods []podDiffState
 	for _, pod := range pods {
 		var conn *grpcSrvConnection
 		if v, ok := cachedGrpcSrvConnection.Load(types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}); !ok || v == nil {
@@ -114,67 +113,129 @@ func (r *VirtualAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			conn = v.(*grpcSrvConnection)
 		}
 
-		newSpec := &ctrlmeshproto.ProxySpec{
-			Meta: &ctrlmeshproto.VAppMeta{
-				Token:           randToken,
-				Name:            vApp.Name,
-				ResourceVersion: vApp.ResourceVersion,
+		subset := determinePodSubset(vApp, pod)
+		newSpec := &ctrlmeshproto.ProxySpecV1{
+			Meta: &ctrlmeshproto.SpecMetaV1{VAppName: vApp.Name},
+			Route: &ctrlmeshproto.RouteV1{
+				Subset:                subset,
+				GlobalLimits:          protoRoute.GlobalLimits,
+				SubsetLimits:          protoRoute.SubsetLimits,
+				SubsetPublicResources: protoRoute.SubsetPublicResources,
 			},
-			Route:              protoRouteMap[determinePodSubset(vApp, pod)],
 			Endpoints:          protoEndpoints,
-			ControlInstruction: &ctrlmeshproto.ControlInstruction{},
+			ControlInstruction: &ctrlmeshproto.ControlInstructionV1{},
 		}
-		newSpecHash := util.CalculateHashForProtoSpec(newSpec)
 
 		conn.mu.Lock()
-		prevStatus := conn.status
+		currentSpec := conn.status.currentSpec
 		conn.mu.Unlock()
 
-		var isSpecHashConsistent, isStrictHashConsistent bool
-		if prevStatus.specHash != nil {
-			if prevStatus.specHash.RouteStrictHash != newSpecHash.RouteStrictHash {
-				existsOldStrictHash = true
-			} else {
-				isStrictHashConsistent = true
-			}
-			if prevStatus.specHash.RouteHash == newSpecHash.RouteHash &&
-				prevStatus.specHash.EndpointsHash == newSpecHash.EndpointsHash &&
-				prevStatus.specHash.NamespacesHash == newSpecHash.NamespacesHash {
-				isSpecHashConsistent = true
-			}
-		}
-
-		var isBlockingLeaderElection bool
-		if prevStatus.controlInstruction != nil && prevStatus.controlInstruction.BlockLeaderElection {
-			isBlockingLeaderElection = true
-		}
-
-		podSpecsList = append(podSpecsList, podSpecs{
+		diffStateForPods = append(diffStateForPods, podDiffState{
 			pod:         pod,
 			conn:        conn,
 			newSpec:     newSpec,
-			newSpecHash: newSpecHash,
-
-			isSpecHashConsistent:     isSpecHashConsistent,
-			isStrictHashConsistent:   isStrictHashConsistent,
-			isBlockingLeaderElection: isBlockingLeaderElection,
+			currentSpec: currentSpec,
 		})
 	}
 
-	for _, podSpecs := range podSpecsList {
-		shouldOpenLeaderElection := podSpecs.isBlockingLeaderElection && !existsOldStrictHash
-		if !shouldOpenLeaderElection && podSpecs.isSpecHashConsistent {
+	// check reload based on diffStateForPods
+	var shouldReloadAll bool
+	for _, diffState := range diffStateForPods {
+		subset := diffState.newSpec.Route.Subset
+		currentSpec := diffState.currentSpec
+		pod := diffState.pod
+		if currentSpec != nil && currentSpec.Route != nil {
+			// If subset changed, reload all.
+			if currentSpec.Route.Subset != subset {
+				klog.Infof("VApp %s/%s find Pod %s subset changed from %s to %s, going to reload all.", vApp.Namespace, vApp.Name, pod.Name, currentSpec.Route.Subset, subset)
+				shouldReloadAll = true
+				continue
+			}
+			// If globalLimits changed, reload this pod.
+			if !util.IsJSONObjectEqual(currentSpec.Route.GlobalLimits, protoRoute.GlobalLimits) {
+				klog.Infof("VApp %s/%s find Pod %s globalLimits changed, going to reload it.", vApp.Namespace, vApp.Name, pod.Name)
+				diffState.needReload = true
+			}
+
+			// If subsetPublicResources changed, reload it.
+			if !util.IsJSONObjectEqual(currentSpec.Route.SubsetPublicResources, protoRoute.SubsetPublicResources) {
+				klog.Infof("VApp %s/%s find Pod %s subsetPublicResources changed, going to reload it.", vApp.Namespace, vApp.Name, pod.Name)
+				diffState.needReload = true
+			}
+
+			// If number of subset limits changed, reload all.
+			newSubsetLimits := ctrlmeshproto.GetLimitsForSubset(subset, protoRoute.SubsetLimits)
+			currentSubsetLimits := ctrlmeshproto.GetLimitsForSubset(subset, currentSpec.Route.SubsetLimits)
+			if util.IsJSONObjectEqual(newSubsetLimits, currentSubsetLimits) {
+				continue
+			}
+
+			// If number of subset limits changed, reload all.
+			if len(newSubsetLimits) != len(currentSubsetLimits) {
+				klog.Infof("VApp %s/%s find Pod %s number of subset limits changed from %s to %s, going to reload all.", vApp.Namespace, vApp.Name, pod.Name, len(currentSubsetLimits), len(newSubsetLimits))
+				shouldReloadAll = true
+				continue
+			}
+
+			// Get all namespaces added in subset limits
+			namespacesAdded := sets.NewString()
+			for i := 0; i < len(newSubsetLimits); i++ {
+				newLimit := newSubsetLimits[i]
+				currentLimit := currentSubsetLimits[i]
+				if !util.IsJSONObjectEqual(newLimit.Resources, currentLimit.Resources) {
+					klog.Infof("VApp %s/%s find Pod %s subset limit resourcesMatching changed, going to reload it.", vApp.Namespace, vApp.Name, pod.Name)
+					diffState.needReload = true
+				}
+				// TODO: if objectSelector changed, we might have to reload all?
+				namespacesAdded.Insert(sets.NewString(newLimit.Namespaces...).Delete(currentLimit.Namespaces...).UnsortedList()...)
+			}
+			// If there are some namespaced added, check if the namespaces already exist in current spec of other pods
+			if namespacesAdded.Len() > 0 {
+				for _, anotherDiffState := range diffStateForPods {
+					anotherPod := anotherDiffState.pod
+					if anotherPod.Name == pod.Name {
+						continue
+					}
+					if anotherDiffState.currentSpec == nil || anotherDiffState.currentSpec.Route == nil {
+						continue
+					}
+					currentLimitOfAnotherPod := ctrlmeshproto.GetLimitsForSubset(anotherDiffState.newSpec.Route.Subset, anotherDiffState.currentSpec.Route.SubsetLimits)
+					for _, limit := range currentLimitOfAnotherPod {
+						var isOverlapping bool
+						for _, ns := range limit.Namespaces {
+							if namespacesAdded.Has(ns) {
+								klog.Infof("VApp %s/%s find Pod %s subset limit add namespace %s which already existed in pod %s, going to reload them.", vApp.Namespace, vApp.Name, pod.Name, ns, anotherPod.Name)
+								diffState.needReload = true
+								anotherDiffState.needReload = true
+								isOverlapping = true
+							}
+						}
+						if isOverlapping {
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// sync messages based on diffStateForPods and shouldReloadAll
+	for _, diffState := range diffStateForPods {
+
+		newSpec := diffState.newSpec
+		if shouldReloadAll || diffState.needReload {
+			newSpec.ControlInstruction.BlockLeaderElection = true
+		}
+		newSpec.Meta.Hash = calculateSpecHash(newSpec)
+		if diffState.currentSpec != nil && diffState.currentSpec.Meta != nil && diffState.currentSpec.Meta.Hash == newSpec.Meta.Hash {
 			continue
 		}
 
-		if existsOldStrictHash && !podSpecs.isStrictHashConsistent {
-			podSpecs.newSpec.ControlInstruction.BlockLeaderElection = existsOldStrictHash
-		}
-		klog.Infof("Sending proto spec %v (hash: %v) to Pod %s in VApp %s/%s", util.DumpJSON(podSpecs.newSpec), util.DumpJSON(podSpecs.newSpecHash), podSpecs.pod.Name, vApp.Namespace, vApp.Name)
-		expectationsSrvHash.Store(types.NamespacedName{Namespace: podSpecs.pod.Namespace, Name: podSpecs.pod.Name}, podSpecs.newSpecHash)
-		if err := podSpecs.conn.srv.Send(podSpecs.newSpec); err != nil {
-			expectationsSrvHash.Delete(types.NamespacedName{Namespace: podSpecs.pod.Namespace, Name: podSpecs.pod.Name})
-			klog.Infof("Failed to send proto spec to Pod %s in VApp %s/%s: %v", podSpecs.pod.Name, vApp.Namespace, vApp.Name, err)
+		klog.Infof("Preparing to send proto spec %v (hash: %v) to Pod %s/%s in VApp %s/%s", util.DumpJSON(newSpec), newSpec.Meta.Hash, diffState.pod.Namespace, diffState.pod.Name, vApp.Namespace, vApp.Name)
+		expectationsSrvHash.Store(types.NamespacedName{Namespace: diffState.pod.Namespace, Name: diffState.pod.Name}, newSpec.Meta.Hash)
+		if err := diffState.conn.srv.Send(newSpec); err != nil {
+			expectationsSrvHash.Delete(types.NamespacedName{Namespace: diffState.pod.Namespace, Name: diffState.pod.Name})
+			klog.Infof("Failed to send proto spec to Pod %s/%s in VApp %s/%s: %v", diffState.pod.Namespace, diffState.pod.Name, vApp.Namespace, vApp.Name, err)
 			return reconcile.Result{}, err
 		}
 	}
@@ -182,15 +243,13 @@ func (r *VirtualAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return ctrl.Result{}, nil
 }
 
-type podSpecs struct {
+type podDiffState struct {
 	pod         *v1.Pod
 	conn        *grpcSrvConnection
-	newSpec     *ctrlmeshproto.ProxySpec
-	newSpecHash *ctrlmeshproto.SpecHash
+	newSpec     *ctrlmeshproto.ProxySpecV1
+	currentSpec *ctrlmeshproto.ProxySpecV1
 
-	isSpecHashConsistent     bool
-	isStrictHashConsistent   bool
-	isBlockingLeaderElection bool
+	needReload bool
 }
 
 func (r *VirtualAppReconciler) getPodsForVApp(vApp *ctrlmeshv1alpha1.VirtualApp) ([]*v1.Pod, error) {
@@ -205,6 +264,7 @@ func (r *VirtualAppReconciler) getPodsForVApp(vApp *ctrlmeshv1alpha1.VirtualApp)
 			pods = append(pods, pod)
 		}
 	}
+	sort.SliceStable(pods, func(i, j int) bool { return pods[i].Name < pods[j].Name })
 	return pods, nil
 }
 
@@ -220,6 +280,7 @@ func (r *VirtualAppReconciler) getActiveNamespaces() ([]*v1.Namespace, error) {
 			namespaces = append(namespaces, ns)
 		}
 	}
+	sort.SliceStable(namespaces, func(i, j int) bool { return namespaces[i].Name < namespaces[j].Name })
 	return namespaces, nil
 }
 

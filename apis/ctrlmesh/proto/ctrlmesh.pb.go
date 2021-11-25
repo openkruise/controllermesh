@@ -24,56 +24,48 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
-type ProxyStatus struct {
-	SelfInfo             *SelfInfo           `protobuf:"bytes,1,opt,name=selfInfo,proto3" json:"selfInfo,omitempty"`
-	SpecHash             *SpecHash           `protobuf:"bytes,2,opt,name=specHash,proto3" json:"specHash,omitempty"`
-	ControlInstruction   *ControlInstruction `protobuf:"bytes,3,opt,name=controlInstruction,proto3" json:"controlInstruction,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}            `json:"-"`
-	XXX_unrecognized     []byte              `json:"-"`
-	XXX_sizecache        int32               `json:"-"`
+type ProxyStatusV1 struct {
+	SelfInfo             *SelfInfo    `protobuf:"bytes,1,opt,name=selfInfo,proto3" json:"selfInfo,omitempty"`
+	CurrentSpec          *ProxySpecV1 `protobuf:"bytes,2,opt,name=currentSpec,proto3" json:"currentSpec,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
+	XXX_unrecognized     []byte       `json:"-"`
+	XXX_sizecache        int32        `json:"-"`
 }
 
-func (m *ProxyStatus) Reset()         { *m = ProxyStatus{} }
-func (m *ProxyStatus) String() string { return proto.CompactTextString(m) }
-func (*ProxyStatus) ProtoMessage()    {}
-func (*ProxyStatus) Descriptor() ([]byte, []int) {
+func (m *ProxyStatusV1) Reset()         { *m = ProxyStatusV1{} }
+func (m *ProxyStatusV1) String() string { return proto.CompactTextString(m) }
+func (*ProxyStatusV1) ProtoMessage()    {}
+func (*ProxyStatusV1) Descriptor() ([]byte, []int) {
 	return fileDescriptor_015120ea8d6d1ea6, []int{0}
 }
-func (m *ProxyStatus) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_ProxyStatus.Unmarshal(m, b)
+func (m *ProxyStatusV1) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ProxyStatusV1.Unmarshal(m, b)
 }
-func (m *ProxyStatus) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_ProxyStatus.Marshal(b, m, deterministic)
+func (m *ProxyStatusV1) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ProxyStatusV1.Marshal(b, m, deterministic)
 }
-func (m *ProxyStatus) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ProxyStatus.Merge(m, src)
+func (m *ProxyStatusV1) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ProxyStatusV1.Merge(m, src)
 }
-func (m *ProxyStatus) XXX_Size() int {
-	return xxx_messageInfo_ProxyStatus.Size(m)
+func (m *ProxyStatusV1) XXX_Size() int {
+	return xxx_messageInfo_ProxyStatusV1.Size(m)
 }
-func (m *ProxyStatus) XXX_DiscardUnknown() {
-	xxx_messageInfo_ProxyStatus.DiscardUnknown(m)
+func (m *ProxyStatusV1) XXX_DiscardUnknown() {
+	xxx_messageInfo_ProxyStatusV1.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_ProxyStatus proto.InternalMessageInfo
+var xxx_messageInfo_ProxyStatusV1 proto.InternalMessageInfo
 
-func (m *ProxyStatus) GetSelfInfo() *SelfInfo {
+func (m *ProxyStatusV1) GetSelfInfo() *SelfInfo {
 	if m != nil {
 		return m.SelfInfo
 	}
 	return nil
 }
 
-func (m *ProxyStatus) GetSpecHash() *SpecHash {
+func (m *ProxyStatusV1) GetCurrentSpec() *ProxySpecV1 {
 	if m != nil {
-		return m.SpecHash
-	}
-	return nil
-}
-
-func (m *ProxyStatus) GetControlInstruction() *ControlInstruction {
-	if m != nil {
-		return m.ControlInstruction
+		return m.CurrentSpec
 	}
 	return nil
 }
@@ -124,317 +116,317 @@ func (m *SelfInfo) GetName() string {
 	return ""
 }
 
-type SpecHash struct {
-	ResourceVersion      string   `protobuf:"bytes,1,opt,name=resourceVersion,proto3" json:"resourceVersion,omitempty"`
-	RouteHash            string   `protobuf:"bytes,2,opt,name=routeHash,proto3" json:"routeHash,omitempty"`
-	RouteStrictHash      string   `protobuf:"bytes,3,opt,name=routeStrictHash,proto3" json:"routeStrictHash,omitempty"`
-	EndpointsHash        string   `protobuf:"bytes,4,opt,name=endpointsHash,proto3" json:"endpointsHash,omitempty"`
-	NamespacesHash       string   `protobuf:"bytes,5,opt,name=namespacesHash,proto3" json:"namespacesHash,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
+type ProxySpecV1 struct {
+	Meta                 *SpecMetaV1           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
+	Route                *RouteV1              `protobuf:"bytes,2,opt,name=route,proto3" json:"route,omitempty"`
+	Endpoints            []*EndpointV1         `protobuf:"bytes,3,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
+	ControlInstruction   *ControlInstructionV1 `protobuf:"bytes,4,opt,name=controlInstruction,proto3" json:"controlInstruction,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}              `json:"-"`
+	XXX_unrecognized     []byte                `json:"-"`
+	XXX_sizecache        int32                 `json:"-"`
 }
 
-func (m *SpecHash) Reset()         { *m = SpecHash{} }
-func (m *SpecHash) String() string { return proto.CompactTextString(m) }
-func (*SpecHash) ProtoMessage()    {}
-func (*SpecHash) Descriptor() ([]byte, []int) {
+func (m *ProxySpecV1) Reset()         { *m = ProxySpecV1{} }
+func (m *ProxySpecV1) String() string { return proto.CompactTextString(m) }
+func (*ProxySpecV1) ProtoMessage()    {}
+func (*ProxySpecV1) Descriptor() ([]byte, []int) {
 	return fileDescriptor_015120ea8d6d1ea6, []int{2}
 }
-func (m *SpecHash) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_SpecHash.Unmarshal(m, b)
+func (m *ProxySpecV1) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ProxySpecV1.Unmarshal(m, b)
 }
-func (m *SpecHash) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_SpecHash.Marshal(b, m, deterministic)
+func (m *ProxySpecV1) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ProxySpecV1.Marshal(b, m, deterministic)
 }
-func (m *SpecHash) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_SpecHash.Merge(m, src)
+func (m *ProxySpecV1) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ProxySpecV1.Merge(m, src)
 }
-func (m *SpecHash) XXX_Size() int {
-	return xxx_messageInfo_SpecHash.Size(m)
+func (m *ProxySpecV1) XXX_Size() int {
+	return xxx_messageInfo_ProxySpecV1.Size(m)
 }
-func (m *SpecHash) XXX_DiscardUnknown() {
-	xxx_messageInfo_SpecHash.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_SpecHash proto.InternalMessageInfo
-
-func (m *SpecHash) GetResourceVersion() string {
-	if m != nil {
-		return m.ResourceVersion
-	}
-	return ""
+func (m *ProxySpecV1) XXX_DiscardUnknown() {
+	xxx_messageInfo_ProxySpecV1.DiscardUnknown(m)
 }
 
-func (m *SpecHash) GetRouteHash() string {
-	if m != nil {
-		return m.RouteHash
-	}
-	return ""
-}
+var xxx_messageInfo_ProxySpecV1 proto.InternalMessageInfo
 
-func (m *SpecHash) GetRouteStrictHash() string {
-	if m != nil {
-		return m.RouteStrictHash
-	}
-	return ""
-}
-
-func (m *SpecHash) GetEndpointsHash() string {
-	if m != nil {
-		return m.EndpointsHash
-	}
-	return ""
-}
-
-func (m *SpecHash) GetNamespacesHash() string {
-	if m != nil {
-		return m.NamespacesHash
-	}
-	return ""
-}
-
-type ProxySpec struct {
-	Meta                 *VAppMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
-	Route                *Route              `protobuf:"bytes,2,opt,name=route,proto3" json:"route,omitempty"`
-	Endpoints            []*Endpoint         `protobuf:"bytes,3,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
-	ControlInstruction   *ControlInstruction `protobuf:"bytes,4,opt,name=controlInstruction,proto3" json:"controlInstruction,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}            `json:"-"`
-	XXX_unrecognized     []byte              `json:"-"`
-	XXX_sizecache        int32               `json:"-"`
-}
-
-func (m *ProxySpec) Reset()         { *m = ProxySpec{} }
-func (m *ProxySpec) String() string { return proto.CompactTextString(m) }
-func (*ProxySpec) ProtoMessage()    {}
-func (*ProxySpec) Descriptor() ([]byte, []int) {
-	return fileDescriptor_015120ea8d6d1ea6, []int{3}
-}
-func (m *ProxySpec) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_ProxySpec.Unmarshal(m, b)
-}
-func (m *ProxySpec) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_ProxySpec.Marshal(b, m, deterministic)
-}
-func (m *ProxySpec) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ProxySpec.Merge(m, src)
-}
-func (m *ProxySpec) XXX_Size() int {
-	return xxx_messageInfo_ProxySpec.Size(m)
-}
-func (m *ProxySpec) XXX_DiscardUnknown() {
-	xxx_messageInfo_ProxySpec.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_ProxySpec proto.InternalMessageInfo
-
-func (m *ProxySpec) GetMeta() *VAppMeta {
+func (m *ProxySpecV1) GetMeta() *SpecMetaV1 {
 	if m != nil {
 		return m.Meta
 	}
 	return nil
 }
 
-func (m *ProxySpec) GetRoute() *Route {
+func (m *ProxySpecV1) GetRoute() *RouteV1 {
 	if m != nil {
 		return m.Route
 	}
 	return nil
 }
 
-func (m *ProxySpec) GetEndpoints() []*Endpoint {
+func (m *ProxySpecV1) GetEndpoints() []*EndpointV1 {
 	if m != nil {
 		return m.Endpoints
 	}
 	return nil
 }
 
-func (m *ProxySpec) GetControlInstruction() *ControlInstruction {
+func (m *ProxySpecV1) GetControlInstruction() *ControlInstructionV1 {
 	if m != nil {
 		return m.ControlInstruction
 	}
 	return nil
 }
 
-type VAppMeta struct {
-	Token                string   `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
-	Name                 string   `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	ResourceVersion      string   `protobuf:"bytes,3,opt,name=resourceVersion,proto3" json:"resourceVersion,omitempty"`
+type SpecMetaV1 struct {
+	VAppName             string   `protobuf:"bytes,1,opt,name=vAppName,proto3" json:"vAppName,omitempty"`
+	Hash                 string   `protobuf:"bytes,2,opt,name=hash,proto3" json:"hash,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *VAppMeta) Reset()         { *m = VAppMeta{} }
-func (m *VAppMeta) String() string { return proto.CompactTextString(m) }
-func (*VAppMeta) ProtoMessage()    {}
-func (*VAppMeta) Descriptor() ([]byte, []int) {
+func (m *SpecMetaV1) Reset()         { *m = SpecMetaV1{} }
+func (m *SpecMetaV1) String() string { return proto.CompactTextString(m) }
+func (*SpecMetaV1) ProtoMessage()    {}
+func (*SpecMetaV1) Descriptor() ([]byte, []int) {
+	return fileDescriptor_015120ea8d6d1ea6, []int{3}
+}
+func (m *SpecMetaV1) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_SpecMetaV1.Unmarshal(m, b)
+}
+func (m *SpecMetaV1) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_SpecMetaV1.Marshal(b, m, deterministic)
+}
+func (m *SpecMetaV1) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_SpecMetaV1.Merge(m, src)
+}
+func (m *SpecMetaV1) XXX_Size() int {
+	return xxx_messageInfo_SpecMetaV1.Size(m)
+}
+func (m *SpecMetaV1) XXX_DiscardUnknown() {
+	xxx_messageInfo_SpecMetaV1.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_SpecMetaV1 proto.InternalMessageInfo
+
+func (m *SpecMetaV1) GetVAppName() string {
+	if m != nil {
+		return m.VAppName
+	}
+	return ""
+}
+
+func (m *SpecMetaV1) GetHash() string {
+	if m != nil {
+		return m.Hash
+	}
+	return ""
+}
+
+type RouteV1 struct {
+	Subset                string                `protobuf:"bytes,1,opt,name=subset,proto3" json:"subset,omitempty"`
+	GlobalLimits          []*MatchLimitRuleV1   `protobuf:"bytes,2,rep,name=globalLimits,proto3" json:"globalLimits,omitempty"`
+	SubsetLimits          []*SubsetLimitV1      `protobuf:"bytes,3,rep,name=subsetLimits,proto3" json:"subsetLimits,omitempty"`
+	SubsetPublicResources []*APIGroupResourceV1 `protobuf:"bytes,4,rep,name=subsetPublicResources,proto3" json:"subsetPublicResources,omitempty"`
+	XXX_NoUnkeyedLiteral  struct{}              `json:"-"`
+	XXX_unrecognized      []byte                `json:"-"`
+	XXX_sizecache         int32                 `json:"-"`
+}
+
+func (m *RouteV1) Reset()         { *m = RouteV1{} }
+func (m *RouteV1) String() string { return proto.CompactTextString(m) }
+func (*RouteV1) ProtoMessage()    {}
+func (*RouteV1) Descriptor() ([]byte, []int) {
 	return fileDescriptor_015120ea8d6d1ea6, []int{4}
 }
-func (m *VAppMeta) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_VAppMeta.Unmarshal(m, b)
+func (m *RouteV1) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_RouteV1.Unmarshal(m, b)
 }
-func (m *VAppMeta) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_VAppMeta.Marshal(b, m, deterministic)
+func (m *RouteV1) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_RouteV1.Marshal(b, m, deterministic)
 }
-func (m *VAppMeta) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_VAppMeta.Merge(m, src)
+func (m *RouteV1) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RouteV1.Merge(m, src)
 }
-func (m *VAppMeta) XXX_Size() int {
-	return xxx_messageInfo_VAppMeta.Size(m)
+func (m *RouteV1) XXX_Size() int {
+	return xxx_messageInfo_RouteV1.Size(m)
 }
-func (m *VAppMeta) XXX_DiscardUnknown() {
-	xxx_messageInfo_VAppMeta.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_VAppMeta proto.InternalMessageInfo
-
-func (m *VAppMeta) GetToken() string {
-	if m != nil {
-		return m.Token
-	}
-	return ""
+func (m *RouteV1) XXX_DiscardUnknown() {
+	xxx_messageInfo_RouteV1.DiscardUnknown(m)
 }
 
-func (m *VAppMeta) GetName() string {
-	if m != nil {
-		return m.Name
-	}
-	return ""
-}
+var xxx_messageInfo_RouteV1 proto.InternalMessageInfo
 
-func (m *VAppMeta) GetResourceVersion() string {
-	if m != nil {
-		return m.ResourceVersion
-	}
-	return ""
-}
-
-type Route struct {
-	Subset                  string                  `protobuf:"bytes,1,opt,name=subset,proto3" json:"subset,omitempty"`
-	GlobalLimits            string                  `protobuf:"bytes,2,opt,name=globalLimits,proto3" json:"globalLimits,omitempty"`
-	SubRules                string                  `protobuf:"bytes,3,opt,name=subRules,proto3" json:"subRules,omitempty"`
-	Subsets                 string                  `protobuf:"bytes,4,opt,name=subsets,proto3" json:"subsets,omitempty"`
-	GlobalExcludeNamespaces []string                `protobuf:"bytes,5,rep,name=globalExcludeNamespaces,proto3" json:"globalExcludeNamespaces,omitempty"`
-	SensSubsetNamespaces    []*SensSubsetNamespaces `protobuf:"bytes,6,rep,name=sensSubsetNamespaces,proto3" json:"sensSubsetNamespaces,omitempty"`
-	XXX_NoUnkeyedLiteral    struct{}                `json:"-"`
-	XXX_unrecognized        []byte                  `json:"-"`
-	XXX_sizecache           int32                   `json:"-"`
-}
-
-func (m *Route) Reset()         { *m = Route{} }
-func (m *Route) String() string { return proto.CompactTextString(m) }
-func (*Route) ProtoMessage()    {}
-func (*Route) Descriptor() ([]byte, []int) {
-	return fileDescriptor_015120ea8d6d1ea6, []int{5}
-}
-func (m *Route) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_Route.Unmarshal(m, b)
-}
-func (m *Route) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_Route.Marshal(b, m, deterministic)
-}
-func (m *Route) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Route.Merge(m, src)
-}
-func (m *Route) XXX_Size() int {
-	return xxx_messageInfo_Route.Size(m)
-}
-func (m *Route) XXX_DiscardUnknown() {
-	xxx_messageInfo_Route.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_Route proto.InternalMessageInfo
-
-func (m *Route) GetSubset() string {
+func (m *RouteV1) GetSubset() string {
 	if m != nil {
 		return m.Subset
 	}
 	return ""
 }
 
-func (m *Route) GetGlobalLimits() string {
+func (m *RouteV1) GetGlobalLimits() []*MatchLimitRuleV1 {
 	if m != nil {
 		return m.GlobalLimits
 	}
-	return ""
+	return nil
 }
 
-func (m *Route) GetSubRules() string {
+func (m *RouteV1) GetSubsetLimits() []*SubsetLimitV1 {
 	if m != nil {
-		return m.SubRules
-	}
-	return ""
-}
-
-func (m *Route) GetSubsets() string {
-	if m != nil {
-		return m.Subsets
-	}
-	return ""
-}
-
-func (m *Route) GetGlobalExcludeNamespaces() []string {
-	if m != nil {
-		return m.GlobalExcludeNamespaces
+		return m.SubsetLimits
 	}
 	return nil
 }
 
-func (m *Route) GetSensSubsetNamespaces() []*SensSubsetNamespaces {
+func (m *RouteV1) GetSubsetPublicResources() []*APIGroupResourceV1 {
 	if m != nil {
-		return m.SensSubsetNamespaces
+		return m.SubsetPublicResources
 	}
 	return nil
 }
 
-type SensSubsetNamespaces struct {
-	Name                 string   `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Namespaces           []string `protobuf:"bytes,2,rep,name=namespaces,proto3" json:"namespaces,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
+type SubsetLimitV1 struct {
+	Subset               string              `protobuf:"bytes,1,opt,name=subset,proto3" json:"subset,omitempty"`
+	Limits               []*MatchLimitRuleV1 `protobuf:"bytes,2,rep,name=limits,proto3" json:"limits,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}            `json:"-"`
+	XXX_unrecognized     []byte              `json:"-"`
+	XXX_sizecache        int32               `json:"-"`
 }
 
-func (m *SensSubsetNamespaces) Reset()         { *m = SensSubsetNamespaces{} }
-func (m *SensSubsetNamespaces) String() string { return proto.CompactTextString(m) }
-func (*SensSubsetNamespaces) ProtoMessage()    {}
-func (*SensSubsetNamespaces) Descriptor() ([]byte, []int) {
+func (m *SubsetLimitV1) Reset()         { *m = SubsetLimitV1{} }
+func (m *SubsetLimitV1) String() string { return proto.CompactTextString(m) }
+func (*SubsetLimitV1) ProtoMessage()    {}
+func (*SubsetLimitV1) Descriptor() ([]byte, []int) {
+	return fileDescriptor_015120ea8d6d1ea6, []int{5}
+}
+func (m *SubsetLimitV1) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_SubsetLimitV1.Unmarshal(m, b)
+}
+func (m *SubsetLimitV1) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_SubsetLimitV1.Marshal(b, m, deterministic)
+}
+func (m *SubsetLimitV1) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_SubsetLimitV1.Merge(m, src)
+}
+func (m *SubsetLimitV1) XXX_Size() int {
+	return xxx_messageInfo_SubsetLimitV1.Size(m)
+}
+func (m *SubsetLimitV1) XXX_DiscardUnknown() {
+	xxx_messageInfo_SubsetLimitV1.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_SubsetLimitV1 proto.InternalMessageInfo
+
+func (m *SubsetLimitV1) GetSubset() string {
+	if m != nil {
+		return m.Subset
+	}
+	return ""
+}
+
+func (m *SubsetLimitV1) GetLimits() []*MatchLimitRuleV1 {
+	if m != nil {
+		return m.Limits
+	}
+	return nil
+}
+
+type MatchLimitRuleV1 struct {
+	Namespaces []string `protobuf:"bytes,1,rep,name=namespaces,proto3" json:"namespaces,omitempty"`
+	// TODO
+	//string objectSelector = 2;
+	Resources            []*APIGroupResourceV1 `protobuf:"bytes,3,rep,name=resources,proto3" json:"resources,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}              `json:"-"`
+	XXX_unrecognized     []byte                `json:"-"`
+	XXX_sizecache        int32                 `json:"-"`
+}
+
+func (m *MatchLimitRuleV1) Reset()         { *m = MatchLimitRuleV1{} }
+func (m *MatchLimitRuleV1) String() string { return proto.CompactTextString(m) }
+func (*MatchLimitRuleV1) ProtoMessage()    {}
+func (*MatchLimitRuleV1) Descriptor() ([]byte, []int) {
 	return fileDescriptor_015120ea8d6d1ea6, []int{6}
 }
-func (m *SensSubsetNamespaces) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_SensSubsetNamespaces.Unmarshal(m, b)
+func (m *MatchLimitRuleV1) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_MatchLimitRuleV1.Unmarshal(m, b)
 }
-func (m *SensSubsetNamespaces) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_SensSubsetNamespaces.Marshal(b, m, deterministic)
+func (m *MatchLimitRuleV1) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_MatchLimitRuleV1.Marshal(b, m, deterministic)
 }
-func (m *SensSubsetNamespaces) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_SensSubsetNamespaces.Merge(m, src)
+func (m *MatchLimitRuleV1) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MatchLimitRuleV1.Merge(m, src)
 }
-func (m *SensSubsetNamespaces) XXX_Size() int {
-	return xxx_messageInfo_SensSubsetNamespaces.Size(m)
+func (m *MatchLimitRuleV1) XXX_Size() int {
+	return xxx_messageInfo_MatchLimitRuleV1.Size(m)
 }
-func (m *SensSubsetNamespaces) XXX_DiscardUnknown() {
-	xxx_messageInfo_SensSubsetNamespaces.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_SensSubsetNamespaces proto.InternalMessageInfo
-
-func (m *SensSubsetNamespaces) GetName() string {
-	if m != nil {
-		return m.Name
-	}
-	return ""
+func (m *MatchLimitRuleV1) XXX_DiscardUnknown() {
+	xxx_messageInfo_MatchLimitRuleV1.DiscardUnknown(m)
 }
 
-func (m *SensSubsetNamespaces) GetNamespaces() []string {
+var xxx_messageInfo_MatchLimitRuleV1 proto.InternalMessageInfo
+
+func (m *MatchLimitRuleV1) GetNamespaces() []string {
 	if m != nil {
 		return m.Namespaces
 	}
 	return nil
 }
 
-type Endpoint struct {
+func (m *MatchLimitRuleV1) GetResources() []*APIGroupResourceV1 {
+	if m != nil {
+		return m.Resources
+	}
+	return nil
+}
+
+type APIGroupResourceV1 struct {
+	ApiGroups            []string `protobuf:"bytes,1,rep,name=apiGroups,proto3" json:"apiGroups,omitempty"`
+	Resources            []string `protobuf:"bytes,2,rep,name=resources,proto3" json:"resources,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *APIGroupResourceV1) Reset()         { *m = APIGroupResourceV1{} }
+func (m *APIGroupResourceV1) String() string { return proto.CompactTextString(m) }
+func (*APIGroupResourceV1) ProtoMessage()    {}
+func (*APIGroupResourceV1) Descriptor() ([]byte, []int) {
+	return fileDescriptor_015120ea8d6d1ea6, []int{7}
+}
+func (m *APIGroupResourceV1) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_APIGroupResourceV1.Unmarshal(m, b)
+}
+func (m *APIGroupResourceV1) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_APIGroupResourceV1.Marshal(b, m, deterministic)
+}
+func (m *APIGroupResourceV1) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_APIGroupResourceV1.Merge(m, src)
+}
+func (m *APIGroupResourceV1) XXX_Size() int {
+	return xxx_messageInfo_APIGroupResourceV1.Size(m)
+}
+func (m *APIGroupResourceV1) XXX_DiscardUnknown() {
+	xxx_messageInfo_APIGroupResourceV1.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_APIGroupResourceV1 proto.InternalMessageInfo
+
+func (m *APIGroupResourceV1) GetApiGroups() []string {
+	if m != nil {
+		return m.ApiGroups
+	}
+	return nil
+}
+
+func (m *APIGroupResourceV1) GetResources() []string {
+	if m != nil {
+		return m.Resources
+	}
+	return nil
+}
+
+type EndpointV1 struct {
 	Name                 string   `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Subset               string   `protobuf:"bytes,2,opt,name=subset,proto3" json:"subset,omitempty"`
 	Ip                   string   `protobuf:"bytes,3,opt,name=ip,proto3" json:"ip,omitempty"`
@@ -443,83 +435,83 @@ type Endpoint struct {
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *Endpoint) Reset()         { *m = Endpoint{} }
-func (m *Endpoint) String() string { return proto.CompactTextString(m) }
-func (*Endpoint) ProtoMessage()    {}
-func (*Endpoint) Descriptor() ([]byte, []int) {
-	return fileDescriptor_015120ea8d6d1ea6, []int{7}
+func (m *EndpointV1) Reset()         { *m = EndpointV1{} }
+func (m *EndpointV1) String() string { return proto.CompactTextString(m) }
+func (*EndpointV1) ProtoMessage()    {}
+func (*EndpointV1) Descriptor() ([]byte, []int) {
+	return fileDescriptor_015120ea8d6d1ea6, []int{8}
 }
-func (m *Endpoint) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_Endpoint.Unmarshal(m, b)
+func (m *EndpointV1) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_EndpointV1.Unmarshal(m, b)
 }
-func (m *Endpoint) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_Endpoint.Marshal(b, m, deterministic)
+func (m *EndpointV1) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_EndpointV1.Marshal(b, m, deterministic)
 }
-func (m *Endpoint) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Endpoint.Merge(m, src)
+func (m *EndpointV1) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_EndpointV1.Merge(m, src)
 }
-func (m *Endpoint) XXX_Size() int {
-	return xxx_messageInfo_Endpoint.Size(m)
+func (m *EndpointV1) XXX_Size() int {
+	return xxx_messageInfo_EndpointV1.Size(m)
 }
-func (m *Endpoint) XXX_DiscardUnknown() {
-	xxx_messageInfo_Endpoint.DiscardUnknown(m)
+func (m *EndpointV1) XXX_DiscardUnknown() {
+	xxx_messageInfo_EndpointV1.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_Endpoint proto.InternalMessageInfo
+var xxx_messageInfo_EndpointV1 proto.InternalMessageInfo
 
-func (m *Endpoint) GetName() string {
+func (m *EndpointV1) GetName() string {
 	if m != nil {
 		return m.Name
 	}
 	return ""
 }
 
-func (m *Endpoint) GetSubset() string {
+func (m *EndpointV1) GetSubset() string {
 	if m != nil {
 		return m.Subset
 	}
 	return ""
 }
 
-func (m *Endpoint) GetIp() string {
+func (m *EndpointV1) GetIp() string {
 	if m != nil {
 		return m.Ip
 	}
 	return ""
 }
 
-type ControlInstruction struct {
+type ControlInstructionV1 struct {
 	BlockLeaderElection  bool     `protobuf:"varint,1,opt,name=blockLeaderElection,proto3" json:"blockLeaderElection,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *ControlInstruction) Reset()         { *m = ControlInstruction{} }
-func (m *ControlInstruction) String() string { return proto.CompactTextString(m) }
-func (*ControlInstruction) ProtoMessage()    {}
-func (*ControlInstruction) Descriptor() ([]byte, []int) {
-	return fileDescriptor_015120ea8d6d1ea6, []int{8}
+func (m *ControlInstructionV1) Reset()         { *m = ControlInstructionV1{} }
+func (m *ControlInstructionV1) String() string { return proto.CompactTextString(m) }
+func (*ControlInstructionV1) ProtoMessage()    {}
+func (*ControlInstructionV1) Descriptor() ([]byte, []int) {
+	return fileDescriptor_015120ea8d6d1ea6, []int{9}
 }
-func (m *ControlInstruction) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_ControlInstruction.Unmarshal(m, b)
+func (m *ControlInstructionV1) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ControlInstructionV1.Unmarshal(m, b)
 }
-func (m *ControlInstruction) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_ControlInstruction.Marshal(b, m, deterministic)
+func (m *ControlInstructionV1) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ControlInstructionV1.Marshal(b, m, deterministic)
 }
-func (m *ControlInstruction) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ControlInstruction.Merge(m, src)
+func (m *ControlInstructionV1) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ControlInstructionV1.Merge(m, src)
 }
-func (m *ControlInstruction) XXX_Size() int {
-	return xxx_messageInfo_ControlInstruction.Size(m)
+func (m *ControlInstructionV1) XXX_Size() int {
+	return xxx_messageInfo_ControlInstructionV1.Size(m)
 }
-func (m *ControlInstruction) XXX_DiscardUnknown() {
-	xxx_messageInfo_ControlInstruction.DiscardUnknown(m)
+func (m *ControlInstructionV1) XXX_DiscardUnknown() {
+	xxx_messageInfo_ControlInstructionV1.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_ControlInstruction proto.InternalMessageInfo
+var xxx_messageInfo_ControlInstructionV1 proto.InternalMessageInfo
 
-func (m *ControlInstruction) GetBlockLeaderElection() bool {
+func (m *ControlInstructionV1) GetBlockLeaderElection() bool {
 	if m != nil {
 		return m.BlockLeaderElection
 	}
@@ -527,15 +519,16 @@ func (m *ControlInstruction) GetBlockLeaderElection() bool {
 }
 
 func init() {
-	proto.RegisterType((*ProxyStatus)(nil), "proto.ProxyStatus")
+	proto.RegisterType((*ProxyStatusV1)(nil), "proto.ProxyStatusV1")
 	proto.RegisterType((*SelfInfo)(nil), "proto.SelfInfo")
-	proto.RegisterType((*SpecHash)(nil), "proto.SpecHash")
-	proto.RegisterType((*ProxySpec)(nil), "proto.ProxySpec")
-	proto.RegisterType((*VAppMeta)(nil), "proto.VAppMeta")
-	proto.RegisterType((*Route)(nil), "proto.Route")
-	proto.RegisterType((*SensSubsetNamespaces)(nil), "proto.SensSubsetNamespaces")
-	proto.RegisterType((*Endpoint)(nil), "proto.Endpoint")
-	proto.RegisterType((*ControlInstruction)(nil), "proto.ControlInstruction")
+	proto.RegisterType((*ProxySpecV1)(nil), "proto.ProxySpecV1")
+	proto.RegisterType((*SpecMetaV1)(nil), "proto.SpecMetaV1")
+	proto.RegisterType((*RouteV1)(nil), "proto.RouteV1")
+	proto.RegisterType((*SubsetLimitV1)(nil), "proto.SubsetLimitV1")
+	proto.RegisterType((*MatchLimitRuleV1)(nil), "proto.MatchLimitRuleV1")
+	proto.RegisterType((*APIGroupResourceV1)(nil), "proto.APIGroupResourceV1")
+	proto.RegisterType((*EndpointV1)(nil), "proto.EndpointV1")
+	proto.RegisterType((*ControlInstructionV1)(nil), "proto.ControlInstructionV1")
 }
 
 func init() {
@@ -543,44 +536,44 @@ func init() {
 }
 
 var fileDescriptor_015120ea8d6d1ea6 = []byte{
-	// 580 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x54, 0x51, 0x6b, 0xd4, 0x4c,
-	0x14, 0xfd, 0x92, 0x6c, 0xda, 0xe4, 0xb6, 0x5f, 0x2b, 0xd7, 0xa2, 0xb1, 0x8a, 0x94, 0x51, 0x64,
-	0x41, 0x6c, 0x4b, 0x05, 0xf1, 0xc1, 0x17, 0x95, 0x96, 0x56, 0x5a, 0x95, 0x59, 0xe8, 0x83, 0x0f,
-	0x42, 0x36, 0x7b, 0xdb, 0x0d, 0xcd, 0x66, 0xc2, 0xcc, 0x04, 0xea, 0xbb, 0xbf, 0xc8, 0x9f, 0xe1,
-	0x83, 0xbf, 0x49, 0x32, 0x99, 0x64, 0x37, 0xbb, 0xe9, 0x8b, 0x4f, 0xd9, 0x7b, 0xe6, 0xdc, 0x33,
-	0x67, 0xee, 0x99, 0x1d, 0x60, 0x71, 0x91, 0xaa, 0x83, 0x44, 0xcb, 0x6c, 0x46, 0x6a, 0x7a, 0x50,
-	0x48, 0xa1, 0x45, 0x5b, 0xee, 0x9b, 0x12, 0x7d, 0xf3, 0x61, 0xbf, 0x1c, 0xd8, 0xf8, 0x2a, 0xc5,
-	0xed, 0x8f, 0x91, 0x8e, 0x75, 0xa9, 0xf0, 0x25, 0x04, 0x8a, 0xb2, 0xab, 0xb3, 0xfc, 0x4a, 0x44,
-	0xce, 0x9e, 0x33, 0xdc, 0x38, 0xda, 0xae, 0x1b, 0xf6, 0x47, 0x16, 0xe6, 0x2d, 0xc1, 0x90, 0x0b,
-	0x4a, 0x4e, 0x63, 0x35, 0x8d, 0xdc, 0x2e, 0xd9, 0xc2, 0xbc, 0x25, 0xe0, 0x19, 0x60, 0x22, 0x72,
-	0x2d, 0x45, 0x76, 0x96, 0x2b, 0x2d, 0xcb, 0x44, 0xa7, 0x22, 0x8f, 0x3c, 0xd3, 0xf6, 0xc8, 0xb6,
-	0x7d, 0x5c, 0x21, 0xf0, 0x9e, 0x26, 0xf6, 0x0e, 0x82, 0xc6, 0x0d, 0x3e, 0x81, 0x30, 0x8f, 0x67,
-	0xa4, 0x8a, 0x38, 0x21, 0xe3, 0x38, 0xe4, 0x73, 0x00, 0x11, 0x06, 0x55, 0x61, 0xdc, 0x85, 0xdc,
-	0xfc, 0x66, 0xbf, 0x1d, 0x08, 0x1a, 0x7f, 0x38, 0x84, 0x6d, 0x49, 0x4a, 0x94, 0x32, 0xa1, 0x4b,
-	0x92, 0xaa, 0xb2, 0x54, 0x8b, 0x2c, 0xc3, 0xd5, 0x46, 0x52, 0x94, 0x9a, 0xda, 0xd3, 0x86, 0x7c,
-	0x0e, 0x18, 0x9d, 0xaa, 0x18, 0x69, 0x99, 0x26, 0xda, 0x70, 0x3c, 0xab, 0xd3, 0x85, 0xf1, 0x39,
-	0xfc, 0x4f, 0xf9, 0xa4, 0x10, 0x69, 0xae, 0x95, 0xe1, 0x0d, 0x0c, 0xaf, 0x0b, 0xe2, 0x0b, 0xd8,
-	0x6a, 0x4f, 0x51, 0xd3, 0x7c, 0x43, 0x5b, 0x42, 0xd9, 0x1f, 0x07, 0xc2, 0x3a, 0xbf, 0x82, 0x12,
-	0x7c, 0x06, 0x83, 0x19, 0xe9, 0x78, 0x29, 0xb9, 0xcb, 0xf7, 0x45, 0x71, 0x41, 0x3a, 0xe6, 0x66,
-	0x11, 0x19, 0xf8, 0xc6, 0x93, 0x8d, 0x6c, 0xd3, 0xb2, 0x78, 0x85, 0xf1, 0x7a, 0x09, 0x5f, 0x41,
-	0xd8, 0xfa, 0x89, 0xbc, 0x3d, 0x6f, 0x41, 0xed, 0xd8, 0xe2, 0x7c, 0xce, 0xb8, 0x23, 0xdb, 0xc1,
-	0xbf, 0x64, 0xfb, 0x1d, 0x82, 0xc6, 0x2f, 0xee, 0x80, 0xaf, 0xc5, 0x0d, 0x35, 0x91, 0xd4, 0x45,
-	0x5f, 0xa6, 0x7d, 0x31, 0x7a, 0xbd, 0x31, 0xb2, 0x9f, 0x2e, 0xf8, 0xe6, 0xa8, 0xf8, 0x00, 0xd6,
-	0x54, 0x39, 0x56, 0xa4, 0xad, 0xbc, 0xad, 0x90, 0xc1, 0xe6, 0x75, 0x26, 0xc6, 0x71, 0x76, 0x9e,
-	0xce, 0x52, 0xad, 0xec, 0x3e, 0x1d, 0x0c, 0x77, 0x21, 0x50, 0xe5, 0x98, 0x97, 0x19, 0x29, 0xbb,
-	0x51, 0x5b, 0x63, 0x04, 0xeb, 0xb5, 0x92, 0xb2, 0xd1, 0x36, 0x25, 0xbe, 0x85, 0x87, 0xb5, 0xca,
-	0xf1, 0x6d, 0x92, 0x95, 0x13, 0xfa, 0xdc, 0x66, 0x19, 0xf9, 0x7b, 0xde, 0x30, 0xe4, 0x77, 0x2d,
-	0xe3, 0x17, 0xd8, 0x51, 0x94, 0xab, 0x91, 0x11, 0x5a, 0x68, 0x5b, 0x33, 0xd1, 0x3c, 0x6e, 0xff,
-	0xa2, 0xab, 0x14, 0xde, 0xdb, 0xc8, 0x3e, 0xc1, 0x4e, 0x1f, 0xbb, 0x1d, 0xae, 0xb3, 0x30, 0xdc,
-	0xa7, 0x00, 0xf3, 0x5b, 0x17, 0xb9, 0xc6, 0xe9, 0x02, 0xc2, 0x4e, 0x20, 0x68, 0x2e, 0x45, 0x6f,
-	0xff, 0x7c, 0xd0, 0x6e, 0x67, 0xd0, 0x5b, 0xe0, 0xa6, 0x85, 0x1d, 0x9f, 0x9b, 0x16, 0xec, 0x04,
-	0x70, 0xf5, 0x92, 0xe0, 0x21, 0xdc, 0x1f, 0x67, 0x22, 0xb9, 0x39, 0xa7, 0x78, 0x42, 0xf2, 0x38,
-	0xa3, 0xfa, 0x72, 0x55, 0x1b, 0x04, 0xbc, 0x6f, 0xe9, 0xe8, 0x14, 0xb6, 0xac, 0x4e, 0x46, 0xf2,
-	0x82, 0xd4, 0x14, 0xdf, 0x40, 0xc0, 0xe9, 0x3a, 0x55, 0x9a, 0x24, 0xa2, 0x1d, 0xd6, 0xc2, 0xab,
-	0xb7, 0x7b, 0xaf, 0x83, 0x15, 0x94, 0xb0, 0xff, 0x86, 0xce, 0xa1, 0xf3, 0x61, 0xfd, 0x5b, 0xfd,
-	0x4c, 0x8e, 0xd7, 0xcc, 0xe7, 0xf5, 0xdf, 0x00, 0x00, 0x00, 0xff, 0xff, 0x4d, 0xfd, 0x12, 0xe1,
-	0x5a, 0x05, 0x00, 0x00,
+	// 578 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x8c, 0x54, 0xdd, 0x6e, 0xd3, 0x4c,
+	0x10, 0xfd, 0xec, 0xa4, 0x6d, 0x3c, 0xfd, 0xf9, 0x60, 0x28, 0x60, 0x0a, 0x42, 0x91, 0x05, 0x52,
+	0x24, 0xa4, 0xa6, 0x2e, 0x48, 0x20, 0x91, 0x9b, 0x82, 0x2a, 0x1a, 0xd1, 0x94, 0x68, 0x23, 0x59,
+	0x88, 0x3b, 0x67, 0xbb, 0x6d, 0xac, 0x3a, 0xde, 0xd5, 0xee, 0x1a, 0xc1, 0x9b, 0xf2, 0x0a, 0xbc,
+	0x05, 0xf2, 0x7a, 0xfd, 0x13, 0x1a, 0x04, 0x57, 0xf6, 0xcc, 0x39, 0x73, 0x66, 0xe6, 0x68, 0x77,
+	0x21, 0x88, 0x45, 0xa2, 0x86, 0x54, 0xcb, 0x74, 0xc9, 0xd4, 0x62, 0x28, 0x24, 0xd7, 0xbc, 0x0e,
+	0x0f, 0x4d, 0x88, 0x1b, 0xe6, 0x13, 0x48, 0xd8, 0x9d, 0x4a, 0xfe, 0xed, 0xfb, 0x4c, 0xc7, 0x3a,
+	0x57, 0x51, 0x88, 0x2f, 0xa0, 0xa7, 0x58, 0x7a, 0x35, 0xce, 0xae, 0xb8, 0xef, 0xf4, 0x9d, 0xc1,
+	0xf6, 0xf1, 0xff, 0x65, 0xc5, 0xe1, 0xcc, 0xa6, 0x49, 0x4d, 0xc0, 0x57, 0xb0, 0x4d, 0x73, 0x29,
+	0x59, 0xa6, 0x67, 0x82, 0x51, 0xdf, 0x35, 0x7c, 0xb4, 0xfc, 0x52, 0x57, 0x30, 0x1a, 0x85, 0xa4,
+	0x4d, 0x0b, 0x46, 0xd0, 0xab, 0xb4, 0xf0, 0x09, 0x78, 0x59, 0xbc, 0x64, 0x4a, 0xc4, 0x94, 0x99,
+	0x7e, 0x1e, 0x69, 0x12, 0x88, 0xd0, 0x2d, 0x02, 0x23, 0xec, 0x11, 0xf3, 0x1f, 0xfc, 0x70, 0x60,
+	0xbb, 0x25, 0x8d, 0xcf, 0xa1, 0xbb, 0x64, 0x3a, 0xb6, 0xc3, 0xde, 0xad, 0x86, 0x15, 0x8c, 0x4e,
+	0x98, 0x8e, 0xa3, 0x90, 0x18, 0x18, 0x9f, 0xc1, 0x86, 0xe4, 0xb9, 0x66, 0x76, 0xc8, 0x3d, 0xcb,
+	0x23, 0x45, 0x2e, 0x0a, 0x49, 0x09, 0xe2, 0x10, 0x3c, 0x96, 0x5d, 0x0a, 0x9e, 0x64, 0x5a, 0xf9,
+	0x9d, 0x7e, 0xa7, 0xa5, 0x78, 0x6a, 0xf3, 0x51, 0x48, 0x1a, 0x0e, 0x7e, 0x04, 0xa4, 0x3c, 0xd3,
+	0x92, 0xa7, 0xe3, 0x4c, 0x69, 0x99, 0x53, 0x9d, 0xf0, 0xcc, 0xef, 0x9a, 0x1e, 0x8f, 0x6d, 0xe5,
+	0xfb, 0x5b, 0x84, 0x28, 0x24, 0x6b, 0xca, 0x82, 0x11, 0x40, 0x33, 0x37, 0x1e, 0x40, 0xef, 0xeb,
+	0x89, 0x10, 0x17, 0x85, 0x01, 0xa5, 0x33, 0x75, 0x5c, 0x18, 0xb3, 0x88, 0xd5, 0xa2, 0x32, 0xa6,
+	0xf8, 0x0f, 0x7e, 0x3a, 0xb0, 0x65, 0xd7, 0xc1, 0x07, 0xb0, 0xa9, 0xf2, 0xb9, 0x62, 0xda, 0x56,
+	0xda, 0x08, 0xdf, 0xc2, 0xce, 0x75, 0xca, 0xe7, 0x71, 0x7a, 0x9e, 0x2c, 0x13, 0xad, 0x7c, 0xd7,
+	0xac, 0xf8, 0xd0, 0x0e, 0x3a, 0x89, 0x35, 0x5d, 0x18, 0x84, 0xe4, 0x69, 0xe1, 0xca, 0x0a, 0x19,
+	0xdf, 0xc0, 0x4e, 0x29, 0x63, 0x8b, 0x4b, 0x7f, 0xf6, 0x2b, 0xc7, 0x1b, 0xa8, 0xa8, 0x6c, 0x33,
+	0xf1, 0x13, 0xdc, 0x2f, 0xe3, 0x69, 0x3e, 0x4f, 0x13, 0x4a, 0x98, 0xe2, 0xb9, 0xa4, 0x4c, 0xf9,
+	0x5d, 0x23, 0xf1, 0xc8, 0x4a, 0x9c, 0x4c, 0xc7, 0x1f, 0x24, 0xcf, 0x45, 0x85, 0x47, 0x21, 0x59,
+	0x5f, 0x17, 0x7c, 0x86, 0xdd, 0x95, 0x7e, 0x7f, 0x5c, 0x78, 0x08, 0x9b, 0xe9, 0x3f, 0xad, 0x6a,
+	0x69, 0xc1, 0x0d, 0xdc, 0xf9, 0x1d, 0xc3, 0xa7, 0x00, 0xf5, 0x99, 0x54, 0xbe, 0xd3, 0xef, 0x0c,
+	0x3c, 0xd2, 0xca, 0xe0, 0x6b, 0xf0, 0x64, 0xbd, 0x52, 0xe7, 0x6f, 0x2b, 0x35, 0xdc, 0x60, 0x0a,
+	0x78, 0x9b, 0x50, 0xdc, 0x89, 0x58, 0x24, 0x26, 0x5b, 0x75, 0x6b, 0x12, 0x05, 0xda, 0x34, 0x73,
+	0x4b, 0xb4, 0x51, 0x3c, 0x03, 0x68, 0x0e, 0x6a, 0x7d, 0x7f, 0x9c, 0xe6, 0xfe, 0xb4, 0x9c, 0x72,
+	0x57, 0x9c, 0xda, 0x03, 0x37, 0x11, 0x7e, 0xc7, 0xe4, 0xdc, 0x44, 0x04, 0x67, 0xb0, 0xbf, 0xee,
+	0xe0, 0xe2, 0x11, 0xdc, 0x9b, 0xa7, 0x9c, 0xde, 0x9c, 0xb3, 0xf8, 0x92, 0xc9, 0xd3, 0x94, 0x95,
+	0x47, 0xbe, 0x68, 0xd1, 0x23, 0xeb, 0xa0, 0xe3, 0x0b, 0xd8, 0xb3, 0x4a, 0x29, 0x93, 0x13, 0xa6,
+	0x16, 0x38, 0x02, 0x20, 0xec, 0x3a, 0x51, 0x9a, 0xc9, 0x28, 0xc4, 0xfd, 0x95, 0x07, 0xc3, 0x3e,
+	0x44, 0x07, 0x6b, 0x9e, 0x91, 0xe0, 0xbf, 0x81, 0x73, 0xe4, 0xbc, 0xdb, 0xfa, 0x52, 0x3e, 0x5e,
+	0xf3, 0x4d, 0xf3, 0x79, 0xf9, 0x2b, 0x00, 0x00, 0xff, 0xff, 0x5f, 0x7d, 0x0b, 0x34, 0xf0, 0x04,
+	0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -595,7 +588,7 @@ const _ = grpc.SupportPackageIsVersion4
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type ControllerMeshClient interface {
-	Register(ctx context.Context, opts ...grpc.CallOption) (ControllerMesh_RegisterClient, error)
+	RegisterV1(ctx context.Context, opts ...grpc.CallOption) (ControllerMesh_RegisterV1Client, error)
 }
 
 type controllerMeshClient struct {
@@ -606,31 +599,31 @@ func NewControllerMeshClient(cc *grpc.ClientConn) ControllerMeshClient {
 	return &controllerMeshClient{cc}
 }
 
-func (c *controllerMeshClient) Register(ctx context.Context, opts ...grpc.CallOption) (ControllerMesh_RegisterClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_ControllerMesh_serviceDesc.Streams[0], "/proto.ControllerMesh/Register", opts...)
+func (c *controllerMeshClient) RegisterV1(ctx context.Context, opts ...grpc.CallOption) (ControllerMesh_RegisterV1Client, error) {
+	stream, err := c.cc.NewStream(ctx, &_ControllerMesh_serviceDesc.Streams[0], "/proto.ControllerMesh/RegisterV1", opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &controllerMeshRegisterClient{stream}
+	x := &controllerMeshRegisterV1Client{stream}
 	return x, nil
 }
 
-type ControllerMesh_RegisterClient interface {
-	Send(*ProxyStatus) error
-	Recv() (*ProxySpec, error)
+type ControllerMesh_RegisterV1Client interface {
+	Send(*ProxyStatusV1) error
+	Recv() (*ProxySpecV1, error)
 	grpc.ClientStream
 }
 
-type controllerMeshRegisterClient struct {
+type controllerMeshRegisterV1Client struct {
 	grpc.ClientStream
 }
 
-func (x *controllerMeshRegisterClient) Send(m *ProxyStatus) error {
+func (x *controllerMeshRegisterV1Client) Send(m *ProxyStatusV1) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *controllerMeshRegisterClient) Recv() (*ProxySpec, error) {
-	m := new(ProxySpec)
+func (x *controllerMeshRegisterV1Client) Recv() (*ProxySpecV1, error) {
+	m := new(ProxySpecV1)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -639,41 +632,41 @@ func (x *controllerMeshRegisterClient) Recv() (*ProxySpec, error) {
 
 // ControllerMeshServer is the server API for ControllerMesh service.
 type ControllerMeshServer interface {
-	Register(ControllerMesh_RegisterServer) error
+	RegisterV1(ControllerMesh_RegisterV1Server) error
 }
 
 // UnimplementedControllerMeshServer can be embedded to have forward compatible implementations.
 type UnimplementedControllerMeshServer struct {
 }
 
-func (*UnimplementedControllerMeshServer) Register(srv ControllerMesh_RegisterServer) error {
-	return status.Errorf(codes.Unimplemented, "method Register not implemented")
+func (*UnimplementedControllerMeshServer) RegisterV1(srv ControllerMesh_RegisterV1Server) error {
+	return status.Errorf(codes.Unimplemented, "method RegisterV1 not implemented")
 }
 
 func RegisterControllerMeshServer(s *grpc.Server, srv ControllerMeshServer) {
 	s.RegisterService(&_ControllerMesh_serviceDesc, srv)
 }
 
-func _ControllerMesh_Register_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(ControllerMeshServer).Register(&controllerMeshRegisterServer{stream})
+func _ControllerMesh_RegisterV1_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ControllerMeshServer).RegisterV1(&controllerMeshRegisterV1Server{stream})
 }
 
-type ControllerMesh_RegisterServer interface {
-	Send(*ProxySpec) error
-	Recv() (*ProxyStatus, error)
+type ControllerMesh_RegisterV1Server interface {
+	Send(*ProxySpecV1) error
+	Recv() (*ProxyStatusV1, error)
 	grpc.ServerStream
 }
 
-type controllerMeshRegisterServer struct {
+type controllerMeshRegisterV1Server struct {
 	grpc.ServerStream
 }
 
-func (x *controllerMeshRegisterServer) Send(m *ProxySpec) error {
+func (x *controllerMeshRegisterV1Server) Send(m *ProxySpecV1) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *controllerMeshRegisterServer) Recv() (*ProxyStatus, error) {
-	m := new(ProxyStatus)
+func (x *controllerMeshRegisterV1Server) Recv() (*ProxyStatusV1, error) {
+	m := new(ProxyStatusV1)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -686,8 +679,8 @@ var _ControllerMesh_serviceDesc = grpc.ServiceDesc{
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "Register",
-			Handler:       _ControllerMesh_Register_Handler,
+			StreamName:    "RegisterV1",
+			Handler:       _ControllerMesh_RegisterV1_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

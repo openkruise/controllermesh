@@ -121,9 +121,7 @@ func (h *namespaceEventHandler) Update(e event.UpdateEvent, q workqueue.RateLimi
 
 		var diff bool
 		for _, ms := range vApp.Spec.Route.GlobalLimits {
-			oldMatch, _ := ms.IsNamespaceMatched(oldNS)
-			newMatch, _ := ms.IsNamespaceMatched(newNS)
-			if oldMatch != newMatch {
+			if isNamespaceMatched(ms, oldNS) != isNamespaceMatched(ms, newNS) {
 				diff = true
 				break
 			}
@@ -135,9 +133,7 @@ func (h *namespaceEventHandler) Update(e event.UpdateEvent, q workqueue.RateLimi
 
 		for _, r := range vApp.Spec.Route.SubRules {
 			for _, ms := range r.Match {
-				oldMatch, _ := ms.IsNamespaceMatched(oldNS)
-				newMatch, _ := ms.IsNamespaceMatched(newNS)
-				if oldMatch != newMatch {
+				if isNamespaceMatched(ms, oldNS) != isNamespaceMatched(ms, newNS) {
 					diff = true
 					break
 				}
