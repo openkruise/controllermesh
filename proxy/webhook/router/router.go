@@ -20,6 +20,9 @@ import (
 	"fmt"
 	"net/http"
 
+	ctrlmeshproto "github.com/openkruise/controllermesh/apis/ctrlmesh/proto"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	proxyclient "github.com/openkruise/controllermesh/proxy/client"
 	admissionv1 "k8s.io/api/admission/v1"
 )
@@ -48,18 +51,28 @@ type router struct {
 }
 
 func (r *router) Route(req *admissionv1.AdmissionRequest) (*Accept, *Redirect, *Ignore, *Error) {
-	_, protoRoute, protoEndpoints, _, _, _ := r.proxyClient.GetProtoSpec()
-	matchSubset, ok := protoRoute.DetermineNamespaceSubset(req.Namespace)
+	snapshot := r.proxyClient.GetProtoSpecSnapshot()
+	protoSpec, _, err := snapshot.AcquireSpec()
+	if err != nil {
+		return nil, nil, nil, &Error{Code: http.StatusExpectationFailed, Msg: "route snapshot exceeded changed"}
+	}
+	defer snapshot.ReleaseSpec()
+
+	gr := schema.GroupResource{Group: req.Resource.Group, Resource: req.Resource.Resource}
+	if protoSpec.RouteInternal.IsDefaultAndEmpty() {
+		return &Accept{}, nil, nil, nil
+	}
+	matchSubset, ok := protoSpec.RouteInternal.DetermineNamespaceSubset(req.Namespace, gr)
 	if !ok {
 		return nil, nil, &Ignore{}, nil
 	}
 
-	if matchSubset == protoRoute.Subset {
+	if matchSubset == ctrlmeshproto.AllSubsetPublic || matchSubset == protoSpec.RouteInternal.Subset {
 		return &Accept{}, nil, nil, nil
 	}
 
 	var hosts []string
-	for _, e := range protoEndpoints {
+	for _, e := range protoSpec.Endpoints {
 		if e.Subset == matchSubset {
 			hosts = append(hosts, e.Ip)
 		}

@@ -4,7 +4,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.4.1
+    controller-gen.kubebuilder.io/version: v0.7.0
   creationTimestamp: null
   name: virtualapps.ctrlmesh.kruise.io
 spec:
@@ -121,6 +121,37 @@ spec:
                                 contains only "value". The requirements are ANDed.
                               type: object
                           type: object
+                        resources:
+                          description: 'TODO(FillZpp): should we support objectSelector?
+                            ObjectSelector    *metav1.LabelSelector `json:"objectSelector,omitempty"`'
+                          items:
+                            properties:
+                              apiGroups:
+                                description: APIGroups is the API groups the resources
+                                  belong to. '*' is all groups. If '*' is present,
+                                  the length of the slice must be one.
+                                items:
+                                  type: string
+                                type: array
+                              resources:
+                                description: "Resources is a list of resources this
+                                  rule applies to. \n For example: 'pods' means pods.
+                                  'pods/log' means the log subresource of pods. '*'
+                                  means all resources, but not subresources. 'pods/*'
+                                  means all subresources of pods. '*/scale' means
+                                  all scale subresources. '*/*' means all resources
+                                  and their subresources. \n If wildcard is present,
+                                  the validation rule will ensure resources do not
+                                  overlap with each other. \n Depending on the enclosing
+                                  object, subresources might not be allowed."
+                                items:
+                                  type: string
+                                type: array
+                            required:
+                            - apiGroups
+                            - resources
+                            type: object
+                          type: array
                       type: object
                     type: array
                   subRules:
@@ -182,6 +213,39 @@ spec:
                                       The requirements are ANDed.
                                     type: object
                                 type: object
+                              resources:
+                                description: 'TODO(FillZpp): should we support objectSelector?
+                                  ObjectSelector    *metav1.LabelSelector `json:"objectSelector,omitempty"`'
+                                items:
+                                  properties:
+                                    apiGroups:
+                                      description: APIGroups is the API groups the
+                                        resources belong to. '*' is all groups. If
+                                        '*' is present, the length of the slice must
+                                        be one.
+                                      items:
+                                        type: string
+                                      type: array
+                                    resources:
+                                      description: "Resources is a list of resources
+                                        this rule applies to. \n For example: 'pods'
+                                        means pods. 'pods/log' means the log subresource
+                                        of pods. '*' means all resources, but not
+                                        subresources. 'pods/*' means all subresources
+                                        of pods. '*/scale' means all scale subresources.
+                                        '*/*' means all resources and their subresources.
+                                        \n If wildcard is present, the validation
+                                        rule will ensure resources do not overlap
+                                        with each other. \n Depending on the enclosing
+                                        object, subresources might not be allowed."
+                                      items:
+                                        type: string
+                                      type: array
+                                  required:
+                                  - apiGroups
+                                  - resources
+                                  type: object
+                                type: array
                             type: object
                           type: array
                         name:
@@ -189,6 +253,34 @@ spec:
                       required:
                       - match
                       - name
+                      type: object
+                    type: array
+                  subsetPublicResources:
+                    items:
+                      properties:
+                        apiGroups:
+                          description: APIGroups is the API groups the resources belong
+                            to. '*' is all groups. If '*' is present, the length of
+                            the slice must be one.
+                          items:
+                            type: string
+                          type: array
+                        resources:
+                          description: "Resources is a list of resources this rule
+                            applies to. \n For example: 'pods' means pods. 'pods/log'
+                            means the log subresource of pods. '*' means all resources,
+                            but not subresources. 'pods/*' means all subresources
+                            of pods. '*/scale' means all scale subresources. '*/*'
+                            means all resources and their subresources. \n If wildcard
+                            is present, the validation rule will ensure resources
+                            do not overlap with each other. \n Depending on the enclosing
+                            object, subresources might not be allowed."
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - apiGroups
+                      - resources
                       type: object
                     type: array
                 type: object

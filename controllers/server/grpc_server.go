@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"reflect"
 	"sync"
 
 	"google.golang.org/grpc/codes"
@@ -47,20 +46,19 @@ var (
 	// cachedGrpcSrvConnection type is map[types.NamespacedName]*grpcSrvConnection
 	cachedGrpcSrvConnection = &sync.Map{}
 
-	// expectationsSrvHash type is map[types.NamespacedName]*ctrlmeshproto.SpecHash
+	// expectationsSrvHash type is map[types.NamespacedName]string
 	expectationsSrvHash = &sync.Map{}
 )
 
 type grpcSrvConnection struct {
-	srv      ctrlmeshproto.ControllerMesh_RegisterServer
+	srv      ctrlmeshproto.ControllerMesh_RegisterV1Server
 	stopChan chan struct{}
 	status   grpcSrvStatus
 	mu       sync.Mutex
 }
 
 type grpcSrvStatus struct {
-	specHash           *ctrlmeshproto.SpecHash
-	controlInstruction *ctrlmeshproto.ControlInstruction
+	currentSpec *ctrlmeshproto.ProxySpecV1
 }
 
 func init() {
@@ -78,7 +76,7 @@ type GrpcServer struct {
 
 var _ ctrlmeshproto.ControllerMeshServer = &GrpcServer{}
 
-func (s *GrpcServer) Register(srv ctrlmeshproto.ControllerMesh_RegisterServer) error {
+func (s *GrpcServer) RegisterV1(srv ctrlmeshproto.ControllerMesh_RegisterV1Server) error {
 	// receive the first register message
 	pStatus, err := srv.Recv()
 	if err != nil {
@@ -107,7 +105,7 @@ func (s *GrpcServer) Register(srv ctrlmeshproto.ControllerMesh_RegisterServer) e
 	klog.V(3).Infof("Start proxy connection from Pod %s in VApp %s", podNamespacedName, vAppName)
 
 	stopChan := make(chan struct{})
-	conn := &grpcSrvConnection{srv: srv, stopChan: stopChan, status: grpcSrvStatus{specHash: pStatus.SpecHash}}
+	conn := &grpcSrvConnection{srv: srv, stopChan: stopChan, status: grpcSrvStatus{currentSpec: pStatus.GetCurrentSpec()}}
 	cachedGrpcSrvConnection.Store(podNamespacedName, conn)
 	expectationsSrvHash.Delete(podNamespacedName)
 
@@ -129,21 +127,25 @@ func (s *GrpcServer) Register(srv ctrlmeshproto.ControllerMesh_RegisterServer) e
 			}
 			klog.Infof("Get proto status from Pod %s in VApp %s: %v", podNamespacedName, vAppName, util.DumpJSON(pStatus))
 
-			if pStatus.SpecHash != nil {
+			if pStatus.GetCurrentSpec() != nil {
 				var trigger bool
 				conn.mu.Lock()
-				if !reflect.DeepEqual(conn.status.specHash, pStatus.SpecHash) {
-					conn.status = grpcSrvStatus{
-						specHash:           pStatus.SpecHash,
-						controlInstruction: pStatus.ControlInstruction,
-					}
+				if !util.IsJSONObjectEqual(conn.status.currentSpec, pStatus.GetCurrentSpec()) {
 					trigger = true
 				}
+				// overwrite the whole status to avoid race condition
+				conn.status = grpcSrvStatus{currentSpec: pStatus.GetCurrentSpec()}
 				conn.mu.Unlock()
 				if v, ok := expectationsSrvHash.Load(podNamespacedName); ok {
-					expectSpecHash := v.(*ctrlmeshproto.SpecHash)
-					if isResourceVersionNewer(expectSpecHash.ResourceVersion, pStatus.SpecHash.ResourceVersion) {
+					expectHash := v.(string)
+					var currentHash string
+					if pStatus.GetCurrentSpec().GetMeta() != nil {
+						currentHash = pStatus.GetCurrentSpec().GetMeta().GetHash()
+					}
+					if currentHash == expectHash {
 						expectationsSrvHash.Delete(podNamespacedName)
+					} else {
+						klog.Warningf("Find unsatisfied hash %s (expected %s) in proto status from Pod %s in VApp %s", currentHash, expectHash, podNamespacedName, vAppName)
 					}
 				}
 				if trigger {

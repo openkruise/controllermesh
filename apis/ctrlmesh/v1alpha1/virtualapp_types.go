@@ -17,12 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"fmt"
-	"regexp"
-
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 const (
@@ -66,10 +61,11 @@ type VirtualAppWebhookConfiguration struct {
 	Port    int    `json:"port"`
 }
 
-// VirtualAppRoute defines the route of this application including global and sub rules.
+// VirtualAppRoute defines the route of this application including global and sub-rules.
 type VirtualAppRoute struct {
-	GlobalLimits []MatchLimitSelector     `json:"globalLimits,omitempty"`
-	SubRules     []VirtualAppRouteSubRule `json:"subRules,omitempty"`
+	GlobalLimits          []MatchLimitSelector     `json:"globalLimits,omitempty"`
+	SubRules              []VirtualAppRouteSubRule `json:"subRules,omitempty"`
+	SubsetPublicResources []APIGroupResource       `json:"subsetPublicResources,omitempty"`
 }
 
 type VirtualAppRouteSubRule struct {
@@ -82,27 +78,28 @@ type MatchLimitSelector struct {
 	NamespaceRegex    *string               `json:"namespaceRegex,omitempty"`
 	// TODO(FillZpp): should we support objectSelector?
 	//ObjectSelector    *metav1.LabelSelector `json:"objectSelector,omitempty"`
+	Resources []APIGroupResource `json:"resources,omitempty"`
 }
 
-func (ms *MatchLimitSelector) IsNamespaceMatched(ns *v1.Namespace) (bool, error) {
-	switch {
-	case ms.NamespaceSelector != nil:
-		selector, err := metav1.LabelSelectorAsSelector(ms.NamespaceSelector)
-		if err != nil {
-			return false, fmt.Errorf("parse namespaceSelector error: %v", err)
-		}
-		return selector.Matches(labels.Set(ns.Labels)), nil
-
-	case ms.NamespaceRegex != nil:
-		regex, err := regexp.Compile(*ms.NamespaceRegex)
-		if err != nil {
-			return false, fmt.Errorf("parse namespaceRegex error: %v", err)
-		}
-		return regex.MatchString(ns.Name), nil
-
-	default:
-		return false, fmt.Errorf("invalid match selector")
-	}
+type APIGroupResource struct {
+	// APIGroups is the API groups the resources belong to. '*' is all groups.
+	// If '*' is present, the length of the slice must be one.
+	APIGroups []string `json:"apiGroups"`
+	// Resources is a list of resources this rule applies to.
+	//
+	// For example:
+	// 'pods' means pods.
+	// 'pods/log' means the log subresource of pods.
+	// '*' means all resources, but not subresources.
+	// 'pods/*' means all subresources of pods.
+	// '*/scale' means all scale subresources.
+	// '*/*' means all resources and their subresources.
+	//
+	// If wildcard is present, the validation rule will ensure resources do not
+	// overlap with each other.
+	//
+	// Depending on the enclosing object, subresources might not be allowed.
+	Resources []string `json:"resources"`
 }
 
 type VirtualAppSubset struct {

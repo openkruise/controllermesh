@@ -19,7 +19,6 @@ package client
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"sync"
 	"time"
 
@@ -41,16 +40,10 @@ type grpcClient struct {
 	informer cache.SharedIndexInformer
 	lister   ctrlmeshv1alpha1listers.ManagerStateLister
 
-	meta               *ctrlmeshproto.VAppMeta
-	route              *ctrlmeshproto.InternalRoute
-	endpoints          []*ctrlmeshproto.Endpoint
-	specHash           *ctrlmeshproto.SpecHash
-	controlInstruction *ctrlmeshproto.ControlInstruction
-	refreshTime        time.Time
-	mu                 sync.Mutex
-
-	snapshots  []*ProtoSpecSnapshot
-	prevStatus *ctrlmeshproto.ProxyStatus
+	mu               sync.Mutex
+	prevStatus       *ctrlmeshproto.ProxyStatusV1
+	currentSnapshot  *ProtoSpecSnapshot
+	historySnapshots []*ProtoSpecSnapshot
 }
 
 func NewGrpcClient() Client {
@@ -129,7 +122,7 @@ func (c *grpcClient) connect(ctx context.Context, initChan chan struct{}) {
 			}()
 
 			grpcCtrlMeshClient := ctrlmeshproto.NewControllerMeshClient(grpcConn)
-			connStream, err := grpcCtrlMeshClient.Register(ctx)
+			connStream, err := grpcCtrlMeshClient.RegisterV1(ctx)
 			if err != nil {
 				klog.Errorf("Failed to register to ctrlmesh-manager %s addr %s: %v", leader.Name, addr, err)
 				return
@@ -142,8 +135,8 @@ func (c *grpcClient) connect(ctx context.Context, initChan chan struct{}) {
 	}
 }
 
-func (c *grpcClient) syncing(connStream ctrlmeshproto.ControllerMesh_RegisterClient, initChan chan struct{}) error {
-	status := &ctrlmeshproto.ProxyStatus{SelfInfo: selfInfo}
+func (c *grpcClient) syncing(connStream ctrlmeshproto.ControllerMesh_RegisterV1Client, initChan chan struct{}) error {
+	status := &ctrlmeshproto.ProxyStatusV1{SelfInfo: selfInfo}
 	if err := connStream.Send(status); err != nil {
 		return fmt.Errorf("send first status %s error: %v", util.DumpJSON(status), err)
 	}
@@ -181,99 +174,82 @@ func (c *grpcClient) syncing(connStream ctrlmeshproto.ControllerMesh_RegisterCli
 	}
 }
 
-func (c *grpcClient) send(connStream ctrlmeshproto.ControllerMesh_RegisterClient) (bool, error) {
+func (c *grpcClient) send(connStream ctrlmeshproto.ControllerMesh_RegisterV1Client) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	var notConsistentCount int
-	var newSnapshots []*ProtoSpecSnapshot
-	for _, s := range c.snapshots {
-		select {
-		case <-s.Closed:
+	var leftSnapshots []*ProtoSpecSnapshot
+	for _, s := range c.historySnapshots {
+		if s.IsClosed() {
 			continue
-		default:
 		}
-		if s.SpecHash.RouteStrictHash != c.specHash.RouteStrictHash {
-			s.Cancel()
-			notConsistentCount++
-		} else if s.SpecHash != c.specHash || reflect.DeepEqual(s.ControlInstruction, c.controlInstruction) {
-			s.Mutex.Lock()
-			s.SpecHash = c.specHash
-			s.Route = c.route
-			s.Endpoints = c.endpoints
-			s.ControlInstruction = c.controlInstruction
-			s.Mutex.Unlock()
-		}
-		newSnapshots = append(newSnapshots, s)
+		leftSnapshots = append(leftSnapshots, s)
 	}
-	c.snapshots = newSnapshots
+	c.historySnapshots = leftSnapshots
 
-	if notConsistentCount > 0 {
-		klog.Warningf("Skip report proto status for strict hash has %v not been consistent yet", notConsistentCount)
+	if len(c.historySnapshots) > 0 {
+		klog.Warningf("Skip report proto status for existing %v unclosed history snapshots yet", len(c.historySnapshots))
 		return true, nil
 	}
 
-	newStatus := &ctrlmeshproto.ProxyStatus{SpecHash: c.specHash, ControlInstruction: c.controlInstruction}
-	if reflect.DeepEqual(newStatus, c.prevStatus) {
+	newStatus := &ctrlmeshproto.ProxyStatusV1{}
+	if c.currentSnapshot != nil {
+		currentSpec, _, err := c.currentSnapshot.AcquireSpec()
+		if err != nil {
+			klog.Warningf("Skip report proto status for getting current spec from snapshot error: %v", err)
+			return true, nil
+		}
+		defer c.currentSnapshot.ReleaseSpec()
+		newStatus.CurrentSpec = currentSpec.ProxySpecV1
+	}
+	if util.IsJSONObjectEqual(newStatus, c.prevStatus) {
 		return false, nil
 	}
 
 	if err := connStream.Send(newStatus); err != nil {
 		return false, fmt.Errorf("send status %s error: %v", util.DumpJSON(newStatus), err)
 	}
+	c.prevStatus = newStatus
 	return false, nil
 }
 
-func (c *grpcClient) recv(connStream ctrlmeshproto.ControllerMesh_RegisterClient) error {
+func (c *grpcClient) recv(connStream ctrlmeshproto.ControllerMesh_RegisterV1Client) error {
 	spec, err := connStream.Recv()
 	if err != nil {
 		return fmt.Errorf("receive spec error: %v", err)
 	}
 
-	route := &ctrlmeshproto.InternalRoute{}
-	if err = route.DecodeFrom(spec.Route); err != nil {
-		klog.Errorf("Failed to decode from spec route %v: %v", util.DumpJSON(spec.Route), err)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if spec == nil || spec.Meta == nil || spec.Route == nil {
+		klog.Errorf("Receive invalid proto spec: %v", util.DumpJSON(spec))
 		return nil
 	}
-
-	oldSpecHash := c.specHash
-	if c.meta != nil && spec.Meta != nil && c.meta.Name != spec.Meta.Name {
-		return fmt.Errorf("get VAppMeta name in spec changed %s -> %s", c.meta.Name, spec.Meta.Name)
+	var renew bool
+	if c.currentSnapshot != nil {
+		renew = c.currentSnapshot.RenewOrClose(spec)
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.meta = spec.Meta
-	c.route = route
-	c.endpoints = spec.Endpoints
-	c.specHash = util.CalculateHashForProtoSpec(spec)
-	c.controlInstruction = spec.ControlInstruction
-	c.refreshTime = time.Now()
-	klog.V(1).Infof("Refresh new proto spec, subset: '%v', globalLimits: %s, subRules: %s, subsets: %s, sensSubsetNamespaces: %+v. endpoints: %s. control: %s. SpecHash from %+v to %+v",
-		route.Subset, util.DumpJSON(route.GlobalLimits), util.DumpJSON(route.SubRules), util.DumpJSON(route.Subsets), route.SensSubsetNamespaces,
-		util.DumpJSON(spec.Endpoints), util.DumpJSON(spec.ControlInstruction), oldSpecHash, c.specHash)
-	return nil
-}
+	if !renew {
+		if c.currentSnapshot != nil {
+			c.historySnapshots = append(c.historySnapshots, c.currentSnapshot)
+		}
+		c.currentSnapshot = newProtoSpecSnapshot(spec)
+	}
 
-func (c *grpcClient) GetProtoSpec() (*ctrlmeshproto.VAppMeta, *ctrlmeshproto.InternalRoute, []*ctrlmeshproto.Endpoint, *ctrlmeshproto.ControlInstruction, *ctrlmeshproto.SpecHash, time.Time) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.meta, c.route, c.endpoints, c.controlInstruction, c.specHash, c.refreshTime
+	msg := fmt.Sprintf("Receive proto spec, subset: '%v', hash: %v, controlInstruction: %v", spec.Route.Subset, spec.Meta.Hash, util.DumpJSON(spec.ControlInstruction))
+	if klog.V(3).Enabled() {
+		msg = fmt.Sprintf("%s, endpoints: %v", msg, util.DumpJSON(spec.Endpoints))
+	}
+	if klog.V(4).Enabled() {
+		msg = fmt.Sprintf("%s, globalLimits: %v, subsetLimits: %v, subsetPublicResources: %v",
+			msg, util.DumpJSON(spec.Route.GlobalLimits), util.DumpJSON(spec.Route.SubsetLimits), util.DumpJSON(spec.Route.SubsetPublicResources))
+	}
+	klog.Info(msg)
+	return nil
 }
 
 func (c *grpcClient) GetProtoSpecSnapshot() *ProtoSpecSnapshot {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	ctx, cancel := context.WithCancel(context.Background())
-	s := &ProtoSpecSnapshot{
-		Ctx:                ctx,
-		Cancel:             cancel,
-		Closed:             make(chan struct{}),
-		Route:              c.route,
-		Endpoints:          c.endpoints,
-		SpecHash:           c.specHash,
-		ControlInstruction: c.controlInstruction,
-		RefreshTime:        c.refreshTime,
-	}
-	c.snapshots = append(c.snapshots, s)
-	return s
+	return c.currentSnapshot
 }

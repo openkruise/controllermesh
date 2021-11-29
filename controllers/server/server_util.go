@@ -17,11 +17,13 @@ limitations under the License.
 package server
 
 import (
+	"regexp"
 	"sort"
-	"strconv"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/klog/v2"
 
 	ctrlmeshproto "github.com/openkruise/controllermesh/apis/ctrlmesh/proto"
 	ctrlmeshv1alpha1 "github.com/openkruise/controllermesh/apis/ctrlmesh/v1alpha1"
@@ -45,20 +47,17 @@ func determinePodSubset(vApp *ctrlmeshv1alpha1.VirtualApp, pod *v1.Pod) string {
 	return ""
 }
 
-func generateProtoRoute(vApp *ctrlmeshv1alpha1.VirtualApp, namespaces []*v1.Namespace) map[string]*ctrlmeshproto.Route {
-	var globalLimits []ctrlmeshv1alpha1.MatchLimitSelector
-	var subRules []ctrlmeshv1alpha1.VirtualAppRouteSubRule
+func generateProtoRoute(vApp *ctrlmeshv1alpha1.VirtualApp, namespaces []*v1.Namespace) *ctrlmeshproto.RouteV1 {
+	protoRoute := &ctrlmeshproto.RouteV1{}
+
+	// global limits
 	if vApp.Spec.Route != nil {
-		globalLimits = vApp.Spec.Route.GlobalLimits
-		subRules = vApp.Spec.Route.SubRules
+		protoRoute.GlobalLimits, _ = generateMatchLimitRules(vApp.Spec.Route.GlobalLimits, namespaces)
+		protoRoute.SubsetPublicResources = generateAPIResources(vApp.Spec.Route.SubsetPublicResources)
 	}
-	sort.SliceStable(subRules, func(i, j int) bool { return subRules[i].Name < subRules[j].Name })
-	subsets := vApp.Spec.Subsets
-	sort.SliceStable(subsets, func(i, j int) bool { return subsets[i].Name < subsets[j].Name })
 
-	routesForAllSubsets := make(map[string]*ctrlmeshproto.Route, len(vApp.Spec.Subsets)+1)
-
-	rulesMap := make(map[string][]ctrlmeshv1alpha1.MatchLimitSelector, len(subRules))
+	// build rules map
+	rulesMap := make(map[string][]ctrlmeshv1alpha1.MatchLimitSelector)
 	if vApp.Spec.Route != nil {
 		for i := range vApp.Spec.Route.SubRules {
 			r := &vApp.Spec.Route.SubRules[i]
@@ -66,66 +65,69 @@ func generateProtoRoute(vApp *ctrlmeshv1alpha1.VirtualApp, namespaces []*v1.Name
 		}
 	}
 
-	globalExcludeNamespaces := sets.NewString()
-	for _, ms := range globalLimits {
-		for _, ns := range namespaces {
-			if globalExcludeNamespaces.Has(ns.Name) {
-				continue
-			}
-			if match, _ := ms.IsNamespaceMatched(ns); !match {
-				globalExcludeNamespaces.Insert(ns.Name)
-			}
-		}
-	}
-
-	previousExcludeNamespaces := sets.NewString().Union(globalExcludeNamespaces)
-	var sensSubsetNamespaces []ctrlmeshproto.InternalSensSubsetNamespaces
-	// add subsets
+	// subsets limits
+	var allExcludeLimits []*ctrlmeshproto.MatchLimitRuleV1
 	for i := range vApp.Spec.Subsets {
 		subset := &vApp.Spec.Subsets[i]
-		subsetNamespaces := sets.NewString()
+		var subsetLimits []ctrlmeshv1alpha1.MatchLimitSelector
 		for _, ruleName := range subset.RouteRules {
-			for _, ms := range rulesMap[ruleName] {
-				for _, ns := range namespaces {
-					if previousExcludeNamespaces.Has(ns.Name) {
-						continue
-					}
-					if match, _ := ms.IsNamespaceMatched(ns); match {
-						subsetNamespaces.Insert(ns.Name)
-					}
-				}
-			}
+			subsetLimits = append(subsetLimits, rulesMap[ruleName]...)
 		}
-		sensSubsetNamespaces = append(sensSubsetNamespaces, ctrlmeshproto.InternalSensSubsetNamespaces{Name: subset.Name, Namespaces: subsetNamespaces})
-		internalRoute := &ctrlmeshproto.InternalRoute{
-			Subset:                  subset.Name,
-			GlobalLimits:            globalLimits,
-			SubRules:                subRules,
-			Subsets:                 subsets,
-			GlobalExcludeNamespaces: globalExcludeNamespaces,
-			SensSubsetNamespaces:    sensSubsetNamespaces,
-		}
-		routesForAllSubsets[subset.Name] = internalRoute.Encode()
-		previousExcludeNamespaces = previousExcludeNamespaces.Union(subsetNamespaces)
+		includeLimits, excludeLimits := generateMatchLimitRules(subsetLimits, namespaces)
+		allExcludeLimits = append(allExcludeLimits, excludeLimits...)
+		protoRoute.SubsetLimits = append(protoRoute.SubsetLimits, &ctrlmeshproto.SubsetLimitV1{
+			Subset: subset.Name,
+			Limits: includeLimits,
+		})
 	}
 
-	// add default
-	routesForAllSubsets[""] = (&ctrlmeshproto.InternalRoute{
-		GlobalLimits:            globalLimits,
-		SubRules:                subRules,
-		Subsets:                 subsets,
-		GlobalExcludeNamespaces: globalExcludeNamespaces,
-		SensSubsetNamespaces:    sensSubsetNamespaces,
-	}).Encode()
+	// add default subset
+	protoRoute.SubsetLimits = append(protoRoute.SubsetLimits, &ctrlmeshproto.SubsetLimitV1{
+		Subset: "",
+		Limits: allExcludeLimits,
+	})
 
-	return routesForAllSubsets
+	return protoRoute
 }
 
-func generateProtoEndpoints(vApp *ctrlmeshv1alpha1.VirtualApp, pods []*v1.Pod) []*ctrlmeshproto.Endpoint {
-	var endpoints []*ctrlmeshproto.Endpoint
+func generateMatchLimitRules(limits []ctrlmeshv1alpha1.MatchLimitSelector, namespaces []*v1.Namespace) (includeRules, excludeRules []*ctrlmeshproto.MatchLimitRuleV1) {
+	if len(limits) == 0 {
+		return nil, nil
+	}
+	for _, ms := range limits {
+		resources := generateAPIResources(ms.Resources)
+		switch {
+		case ms.NamespaceSelector != nil, ms.NamespaceRegex != nil:
+			var matchedNamespaces []string
+			var unmatchedNamespaces []string
+			for _, ns := range namespaces {
+				if isNamespaceMatched(ms, ns) {
+					matchedNamespaces = append(matchedNamespaces, ns.Name)
+				} else {
+					unmatchedNamespaces = append(unmatchedNamespaces, ns.Name)
+				}
+			}
+			includeRules = append(includeRules, &ctrlmeshproto.MatchLimitRuleV1{Namespaces: matchedNamespaces, Resources: resources})
+			excludeRules = append(excludeRules, &ctrlmeshproto.MatchLimitRuleV1{Namespaces: unmatchedNamespaces, Resources: resources})
+			// TODO: object selector
+		}
+	}
+	return
+}
+
+func generateAPIResources(resources []ctrlmeshv1alpha1.APIGroupResource) []*ctrlmeshproto.APIGroupResourceV1 {
+	var ret []*ctrlmeshproto.APIGroupResourceV1
+	for _, resource := range resources {
+		ret = append(ret, &ctrlmeshproto.APIGroupResourceV1{ApiGroups: resource.APIGroups, Resources: resource.Resources})
+	}
+	return ret
+}
+
+func generateProtoEndpoints(vApp *ctrlmeshv1alpha1.VirtualApp, pods []*v1.Pod) []*ctrlmeshproto.EndpointV1 {
+	var endpoints []*ctrlmeshproto.EndpointV1
 	for _, pod := range pods {
 		if util.IsPodReady(pod) {
-			endpoints = append(endpoints, &ctrlmeshproto.Endpoint{
+			endpoints = append(endpoints, &ctrlmeshproto.EndpointV1{
 				Name:   pod.Name,
 				Ip:     pod.Status.PodIP,
 				Subset: determinePodSubset(vApp, pod),
@@ -140,20 +142,29 @@ func generateProtoEndpoints(vApp *ctrlmeshv1alpha1.VirtualApp, pods []*v1.Pod) [
 	return endpoints
 }
 
-func isResourceVersionNewer(old, new string) bool {
-	if len(old) == 0 {
-		return true
+func isNamespaceMatched(ms ctrlmeshv1alpha1.MatchLimitSelector, ns *v1.Namespace) bool {
+	if ms.NamespaceSelector != nil {
+		selector, err := metav1.LabelSelectorAsSelector(ms.NamespaceSelector)
+		if err != nil {
+			klog.Warningf("Invalid namespace selector %v: %v", util.DumpJSON(ms.NamespaceSelector), err)
+			return false
+		}
+		return selector.Matches(labels.Set(ns.Labels))
+	} else if ms.NamespaceRegex != nil {
+		regex, err := regexp.Compile(*ms.NamespaceRegex)
+		if err != nil {
+			klog.Warningf("Invalid namespace regex %v: %v", *ms.NamespaceRegex, err)
+			return false
+		}
+		return regex.MatchString(ns.Name)
 	}
+	return false
+}
 
-	oldCount, err := strconv.ParseUint(old, 10, 64)
-	if err != nil {
-		return true
-	}
-
-	newCount, err := strconv.ParseUint(new, 10, 64)
-	if err != nil {
-		return false
-	}
-
-	return newCount >= oldCount
+func calculateSpecHash(spec *ctrlmeshproto.ProxySpecV1) string {
+	return util.GetMD5Hash(util.DumpJSON(ctrlmeshproto.ProxySpecV1{
+		Route:              spec.Route,
+		Endpoints:          spec.Endpoints,
+		ControlInstruction: spec.ControlInstruction,
+	}))
 }

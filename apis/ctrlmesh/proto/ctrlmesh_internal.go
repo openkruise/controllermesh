@@ -17,117 +17,146 @@ limitations under the License.
 package proto
 
 import (
-	"encoding/json"
-	"fmt"
-
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
-
-	ctrlmeshv1alpha1 "github.com/openkruise/controllermesh/apis/ctrlmesh/v1alpha1"
 )
 
-type InternalRoute struct {
-	Subset string
+const (
+	AllSubsetPublic = "AllSubsetPublic"
+	ResourceAll     = "*"
+)
 
-	GlobalLimits            []ctrlmeshv1alpha1.MatchLimitSelector
-	SubRules                []ctrlmeshv1alpha1.VirtualAppRouteSubRule
-	Subsets                 []ctrlmeshv1alpha1.VirtualAppSubset
-	GlobalExcludeNamespaces sets.String
-	SensSubsetNamespaces    []InternalSensSubsetNamespaces
-}
-
-type InternalSensSubsetNamespaces struct {
-	Name       string
-	Namespaces sets.String
-}
-
-func (ir *InternalRoute) DecodeFrom(route *Route) error {
-	if ir == nil {
-		return fmt.Errorf("can not parse into nil")
-	} else if route == nil {
-		return nil
-	}
-	ir.Subset = route.Subset
-	if len(route.GlobalLimits) > 0 {
-		if err := json.Unmarshal([]byte(route.GlobalLimits), &ir.GlobalLimits); err != nil {
-			return err
+func GetLimitsForSubset(subset string, subsetLimits []*SubsetLimitV1) []*MatchLimitRuleV1 {
+	for _, subsetLimit := range subsetLimits {
+		if subsetLimit.Subset == subset {
+			return subsetLimit.Limits
 		}
-	}
-	if len(route.SubRules) > 0 {
-		if err := json.Unmarshal([]byte(route.SubRules), &ir.SubRules); err != nil {
-			return err
-		}
-	}
-	if len(route.Subsets) > 0 {
-		if err := json.Unmarshal([]byte(route.Subsets), &ir.Subsets); err != nil {
-			return err
-		}
-	}
-	ir.SensSubsetNamespaces = nil
-	for _, s := range route.SensSubsetNamespaces {
-		ir.SensSubsetNamespaces = append(ir.SensSubsetNamespaces, InternalSensSubsetNamespaces{Name: s.Name, Namespaces: sets.NewString(s.Namespaces...)})
-	}
-	if len(route.GlobalExcludeNamespaces) > 0 {
-		ir.GlobalExcludeNamespaces = sets.NewString(route.GlobalExcludeNamespaces...)
 	}
 	return nil
 }
 
-func (ir *InternalRoute) Encode() *Route {
-	if ir == nil {
-		return nil
+func ConvertProtoSpecToInternal(protoSpec *ProxySpecV1) *InternalSpec {
+	is := &InternalSpec{ProxySpecV1: protoSpec}
+	if r := protoSpec.Route; r != nil {
+		is.RouteInternal = &InternalRoute{
+			Subset:                r.Subset,
+			GlobalLimits:          convertProtoMatchLimitRuleToInternal(r.GlobalLimits),
+			SubsetPublicResources: r.SubsetPublicResources,
+		}
+		for _, subsetLimit := range r.SubsetLimits {
+			is.RouteInternal.SubsetLimits = append(is.RouteInternal.SubsetLimits, &InternalSubsetLimit{
+				Subset: subsetLimit.Subset,
+				Limits: convertProtoMatchLimitRuleToInternal(subsetLimit.Limits),
+			})
+		}
 	}
-	if ir.GlobalLimits == nil {
-		ir.GlobalLimits = make([]ctrlmeshv1alpha1.MatchLimitSelector, 0)
-	}
-	if ir.SubRules == nil {
-		ir.SubRules = make([]ctrlmeshv1alpha1.VirtualAppRouteSubRule, 0)
-	}
-	if ir.Subsets == nil {
-		ir.Subsets = make([]ctrlmeshv1alpha1.VirtualAppSubset, 0)
-	}
-	var sensSubsetNamespaces []*SensSubsetNamespaces
-	for _, s := range ir.SensSubsetNamespaces {
-		sensSubsetNamespaces = append(sensSubsetNamespaces, &SensSubsetNamespaces{Name: s.Name, Namespaces: s.Namespaces.List()})
-	}
-	return &Route{
-		Subset:                  ir.Subset,
-		GlobalLimits:            dumpJSON(ir.GlobalLimits),
-		SubRules:                dumpJSON(ir.SubRules),
-		Subsets:                 dumpJSON(ir.Subsets),
-		SensSubsetNamespaces:    sensSubsetNamespaces,
-		GlobalExcludeNamespaces: ir.GlobalExcludeNamespaces.List(),
-	}
+
+	return is
 }
 
-func (ir *InternalRoute) IsDefaultEmpty() bool {
-	return ir.Subset == "" && ir.GlobalExcludeNamespaces.Len() == 0 && len(ir.SensSubsetNamespaces) == 0
+func convertProtoMatchLimitRuleToInternal(limits []*MatchLimitRuleV1) []*InternalMatchLimitRule {
+	var internalLimits []*InternalMatchLimitRule
+	for _, limit := range limits {
+		internalLimits = append(internalLimits, &InternalMatchLimitRule{Namespaces: sets.NewString(limit.Namespaces...), Resources: limit.Resources})
+	}
+	return internalLimits
 }
 
-func (ir *InternalRoute) IsNamespaceMatch(ns string) bool {
-	subset, ok := ir.DetermineNamespaceSubset(ns)
+type InternalSpec struct {
+	*ProxySpecV1
+	RouteInternal *InternalRoute
+}
+
+type InternalRoute struct {
+	Subset                string
+	GlobalLimits          []*InternalMatchLimitRule
+	SubsetLimits          []*InternalSubsetLimit
+	SubsetPublicResources []*APIGroupResourceV1
+}
+
+type InternalSubsetLimit struct {
+	Subset string
+	Limits []*InternalMatchLimitRule
+}
+
+type InternalMatchLimitRule struct {
+	Namespaces sets.String
+	// TODO: parse from objectSelector string in protobuf
+	// ObjectSelector    *metav1.LabelSelector
+	Resources []*APIGroupResourceV1
+}
+
+func (ir *InternalRoute) IsDefaultAndEmpty() bool {
+	return ir.Subset == "" && len(ir.GlobalLimits) == 0 && len(ir.SubsetLimits) == 0
+}
+
+func (ir *InternalRoute) IsNamespaceMatch(ns string, gr schema.GroupResource) bool {
+	subset, ok := ir.DetermineNamespaceSubset(ns, gr)
 	if !ok {
 		return false
 	}
-	return subset == ir.Subset
+	return subset == AllSubsetPublic || subset == ir.Subset
 }
 
-func (ir *InternalRoute) DetermineNamespaceSubset(ns string) (string, bool) {
-	if ir.GlobalExcludeNamespaces.Has(ns) {
-		return "", false
-	}
-	// currently cluster scope resources can only handled by the default instance
-	if ns == "" {
-		return "", true
-	}
-	for _, s := range ir.SensSubsetNamespaces {
-		if s.Namespaces.Has(ns) {
-			return s.Name, true
+func (ir *InternalRoute) DetermineNamespaceSubset(ns string, gr schema.GroupResource) (string, bool) {
+	for _, limit := range ir.GlobalLimits {
+		if len(limit.Resources) > 0 && !isGRMatchedAPIResources(gr, limit.Resources) {
+			continue
+		}
+
+		if !limit.Namespaces.Has(ns) {
+			return "", false
 		}
 	}
+
+	isResourceMatchPublic := isGRMatchedAPIResources(gr, ir.SubsetPublicResources)
+	var isResourceMatchLimit bool
+	for _, subsetLimits := range ir.SubsetLimits {
+		for _, limit := range subsetLimits.Limits {
+			if len(limit.Resources) > 0 {
+				if !isGRMatchedAPIResources(gr, limit.Resources) {
+					continue
+				}
+				isResourceMatchLimit = true
+			} else if isResourceMatchPublic {
+				continue
+			}
+
+			if limit.Namespaces.Has(ns) {
+				return subsetLimits.Subset, true
+			}
+		}
+	}
+	if isResourceMatchPublic && !isResourceMatchLimit {
+		return AllSubsetPublic, true
+	}
+
 	return "", true
 }
 
-func dumpJSON(o interface{}) string {
-	j, _ := json.Marshal(o)
-	return string(j)
+func isGRMatchedAPIResources(gr schema.GroupResource, resources []*APIGroupResourceV1) bool {
+	for _, r := range resources {
+		if containsString(gr.Group, r.ApiGroups, ResourceAll) && containsString(gr.Resource, r.Resources, ResourceAll) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsString returns true if either `x` or `wildcard` is in
+// `list`.  The wildcard is not a pattern to match against `x`; rather
+// the presence of the wildcard in the list is the caller's way of
+// saying that all values of `x` should match the list.  This function
+// assumes that if `wildcard` is in `list` then it is the only member
+// of the list, which is enforced by validation.
+func containsString(x string, list []string, wildcard string) bool {
+	if len(list) == 1 && list[0] == wildcard {
+		return true
+	}
+	for _, y := range list {
+		if x == y {
+			return true
+		}
+	}
+	return false
 }

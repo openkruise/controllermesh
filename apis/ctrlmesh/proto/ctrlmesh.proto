@@ -3,13 +3,12 @@ option go_package = "proto";
 package proto;
 
 service ControllerMesh {
-  rpc Register(stream ProxyStatus) returns (stream ProxySpec) {}
+  rpc RegisterV1(stream ProxyStatusV1) returns (stream ProxySpecV1) {}
 }
 
-message ProxyStatus {
+message ProxyStatusV1 {
   SelfInfo selfInfo = 1;
-  SpecHash specHash = 2;
-  ControlInstruction controlInstruction = 3;
+  ProxySpecV1 currentSpec = 2;
 }
 
 message SelfInfo {
@@ -17,47 +16,48 @@ message SelfInfo {
   string name = 2;
 }
 
-message SpecHash {
-  string resourceVersion = 1;
-  string routeHash = 2;
-  string routeStrictHash = 3;
-  string endpointsHash = 4;
-  string namespacesHash = 5;
+message ProxySpecV1 {
+  SpecMetaV1 meta = 1;
+  RouteV1 route = 2;
+  repeated EndpointV1 endpoints = 3;
+  ControlInstructionV1 controlInstruction = 4;
 }
 
-message ProxySpec {
-  VAppMeta meta = 1;
-  Route route = 2;
-  repeated Endpoint endpoints = 3;
-  ControlInstruction controlInstruction = 4;
+message SpecMetaV1 {
+  string vAppName = 1;
+  string hash = 2;
 }
 
-message VAppMeta {
-  string token = 1;
-  string name = 2;
-  string resourceVersion = 3;
-}
-
-message Route {
+message RouteV1 {
   string subset = 1;
-  string globalLimits = 2;
-  string subRules = 3;
-  string subsets = 4;
-  repeated string globalExcludeNamespaces = 5;
-  repeated SensSubsetNamespaces sensSubsetNamespaces = 6;
+  repeated MatchLimitRuleV1 globalLimits = 2;
+  repeated SubsetLimitV1 subsetLimits = 3;
+  repeated APIGroupResourceV1 subsetPublicResources = 4;
 }
 
-message SensSubsetNamespaces {
-  string name = 1;
-  repeated string namespaces = 2;
+message SubsetLimitV1 {
+  string subset = 1;
+  repeated MatchLimitRuleV1 limits = 2;
 }
 
-message Endpoint {
+message MatchLimitRuleV1 {
+  repeated string namespaces = 1;
+  // TODO
+  //string objectSelector = 2;
+  repeated APIGroupResourceV1 resources = 3;
+}
+
+message APIGroupResourceV1 {
+  repeated string apiGroups = 1;
+  repeated string resources = 2;
+}
+
+message EndpointV1 {
   string name = 1;
   string subset = 2;
   string ip = 3;
 }
 
-message ControlInstruction {
+message ControlInstructionV1 {
   bool blockLeaderElection = 1;
 }
