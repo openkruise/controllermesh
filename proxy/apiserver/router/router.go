@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -33,9 +34,15 @@ import (
 	"k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/klog/v2"
 
+	"github.com/openkruise/controllermesh/apis/ctrlmesh/proto"
 	proxyclient "github.com/openkruise/controllermesh/proxy/client"
 	"github.com/openkruise/controllermesh/util"
 	utildiscovery "github.com/openkruise/controllermesh/util/discovery"
+	httputil "github.com/openkruise/controllermesh/util/http"
+)
+
+const (
+	labelSelectorKey = "labelSelector"
 )
 
 type Router interface {
@@ -94,7 +101,9 @@ func (r *router) Route(httpReq *http.Request, reqInfo *request.RequestInfo) (*Ro
 			apiResource:   apiResource,
 			snapshot:      snapshot,
 		}
-
+		if err = r.injectSelector(protoSpec.RouteInternal, httpReq, &gvr); err != nil {
+			return nil, &Error{Code: http.StatusInternalServerError, Msg: fmt.Sprintf("failed to inject lebal selector with gvr %v: %v", gvr, err)}
+		}
 		if reqInfo.Verb == "list" {
 			handler := &listHandler{config: *conf}
 			return &RouteAccept{ModifyResponse: handler.handle}, nil
@@ -109,6 +118,73 @@ func (r *router) Route(httpReq *http.Request, reqInfo *request.RequestInfo) (*Ro
 	}
 
 	return &RouteAccept{}, nil
+}
+
+func (r *router) injectSelector(route *proto.InternalRoute, httpReq *http.Request, gvr *schema.GroupVersionResource) error {
+	var subset *proto.InternalSubsetLimit
+	for _, sub := range route.SubsetLimits {
+		if sub.Subset == route.Subset {
+			subset = sub
+			break
+		}
+	}
+	if subset == nil {
+		return fmt.Errorf("can not find subset rule %s", route.Subset)
+	}
+	lbSelector := mergeSelector(determineObjectSelector(subset.Limits, gvr), determineObjectSelector(route.GlobalLimits, gvr))
+	if lbSelector.Size() == 0 {
+		return nil
+	}
+	selector, err := metav1.LabelSelectorAsSelector(lbSelector)
+	if err != nil {
+		return err
+	}
+	raw, err := httputil.ParseRawQuery(httpReq.URL.RawQuery)
+	if err != nil {
+		return err
+	}
+	raw[labelSelectorKey] = url.QueryEscape(selector.String())
+	httpReq.Header.Add("OLD-RAW-QUERY", httpReq.URL.RawQuery)
+	httpReq.URL.RawQuery = httputil.MarshalRawQuery(raw)
+	klog.Infof("inject selector in request rawQuery, %s -> %s", httpReq.Header.Get("OLD-RAW-QUERY"), httpReq.URL.RawQuery)
+	return nil
+}
+
+func determineObjectSelector(rules []*proto.InternalMatchLimitRule, gvr *schema.GroupVersionResource) *metav1.LabelSelector {
+	for _, limiter := range rules {
+		if limiter.ObjectSelector == nil {
+			continue
+		}
+		if proto.IsGRMatchedAPIResources(gvr.GroupResource(), limiter.Resources) {
+			return limiter.ObjectSelector
+		}
+	}
+	return nil
+}
+
+func mergeSelector(selA *metav1.LabelSelector, selB *metav1.LabelSelector) *metav1.LabelSelector {
+	if selB == nil {
+		return selA.DeepCopy()
+	}
+	if selA == nil {
+		return selB.DeepCopy()
+	}
+	result := selA.DeepCopy()
+	if selB.MatchExpressions != nil {
+		if result.MatchExpressions == nil {
+			result.MatchExpressions = []metav1.LabelSelectorRequirement{}
+		}
+		result.MatchExpressions = append(result.MatchExpressions, selB.MatchExpressions...)
+	}
+	if selB.MatchLabels != nil {
+		if result.MatchLabels == nil {
+			result.MatchLabels = map[string]string{}
+		}
+		for key, val := range selB.MatchLabels {
+			result.MatchLabels[key] = val
+		}
+	}
+	return result
 }
 
 type config struct {

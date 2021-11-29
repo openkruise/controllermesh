@@ -159,11 +159,20 @@ func validateMatchLimitSelector(m ctrlmeshv1alpha1.MatchLimitSelector) error {
 		if _, err := regexp.Compile(*m.NamespaceRegex); err != nil {
 			return fmt.Errorf("parse namespaceRegex error: %v", err)
 		}
+	case m.ObjectSelector != nil:
+		if _, err := metav1.LabelSelectorAsSelector(m.ObjectSelector); err != nil {
+			return fmt.Errorf("parse ObjectSelector error: %v", err)
+		}
 	default:
 		return fmt.Errorf("empty match limit selector")
 	}
-	if m.NamespaceSelector != nil && m.NamespaceRegex != nil {
+	if (m.NamespaceSelector != nil && m.NamespaceRegex != nil) ||
+		(m.ObjectSelector != nil && m.NamespaceRegex != nil) ||
+		(m.NamespaceSelector != nil && m.ObjectSelector != nil) {
 		return fmt.Errorf("invalid match limit selector")
+	}
+	if m.ObjectSelector != nil && m.Resources == nil {
+		return fmt.Errorf("invalid object selector, no resource specified")
 	}
 	return nil
 }

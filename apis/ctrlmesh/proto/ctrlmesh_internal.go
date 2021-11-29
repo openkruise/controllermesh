@@ -17,8 +17,11 @@ limitations under the License.
 package proto
 
 import (
+	"encoding/json"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -49,6 +52,7 @@ func ConvertProtoSpecToInternal(protoSpec *ProxySpecV1) *InternalSpec {
 				Limits: convertProtoMatchLimitRuleToInternal(subsetLimit.Limits),
 			})
 		}
+		determineSelectorRule(is.RouteInternal)
 	}
 
 	return is
@@ -57,9 +61,39 @@ func ConvertProtoSpecToInternal(protoSpec *ProxySpecV1) *InternalSpec {
 func convertProtoMatchLimitRuleToInternal(limits []*MatchLimitRuleV1) []*InternalMatchLimitRule {
 	var internalLimits []*InternalMatchLimitRule
 	for _, limit := range limits {
-		internalLimits = append(internalLimits, &InternalMatchLimitRule{Namespaces: sets.NewString(limit.Namespaces...), Resources: limit.Resources})
+
+		if len(limit.ObjectSelector) > 0 {
+			selector := &metav1.LabelSelector{}
+			if err := json.Unmarshal([]byte(limit.ObjectSelector), limit); err != nil {
+				klog.Errorf("fail to unmarshal ObjectSelector %s", limit.ObjectSelector)
+			}
+			internalLimits = append(internalLimits, &InternalMatchLimitRule{
+				Resources:      limit.Resources,
+				ObjectSelector: selector,
+			})
+		} else {
+			internalLimits = append(internalLimits, &InternalMatchLimitRule{
+				Namespaces: sets.NewString(limit.Namespaces...),
+				Resources:  limit.Resources,
+			})
+		}
 	}
 	return internalLimits
+}
+
+func determineSelectorRule(route *InternalRoute) {
+	for _, sub := range route.SubsetLimits {
+		if sub.Subset == route.Subset {
+			for _, limit := range sub.Limits {
+				if limit.ObjectSelector == nil {
+					route.IsOnlyObjectSelector = false
+					return
+				}
+			}
+			break
+		}
+	}
+	route.IsOnlyObjectSelector = true
 }
 
 type InternalSpec struct {
@@ -72,6 +106,7 @@ type InternalRoute struct {
 	GlobalLimits          []*InternalMatchLimitRule
 	SubsetLimits          []*InternalSubsetLimit
 	SubsetPublicResources []*APIGroupResourceV1
+	IsOnlyObjectSelector  bool
 }
 
 type InternalSubsetLimit struct {
@@ -80,10 +115,9 @@ type InternalSubsetLimit struct {
 }
 
 type InternalMatchLimitRule struct {
-	Namespaces sets.String
-	// TODO: parse from objectSelector string in protobuf
-	// ObjectSelector    *metav1.LabelSelector
-	Resources []*APIGroupResourceV1
+	Namespaces     sets.String
+	ObjectSelector *metav1.LabelSelector
+	Resources      []*APIGroupResourceV1
 }
 
 func (ir *InternalRoute) IsDefaultAndEmpty() bool {
@@ -91,6 +125,9 @@ func (ir *InternalRoute) IsDefaultAndEmpty() bool {
 }
 
 func (ir *InternalRoute) IsNamespaceMatch(ns string, gr schema.GroupResource) bool {
+	if ir.IsOnlyObjectSelector {
+		return true
+	}
 	subset, ok := ir.DetermineNamespaceSubset(ns, gr)
 	if !ok {
 		return false
@@ -100,7 +137,7 @@ func (ir *InternalRoute) IsNamespaceMatch(ns string, gr schema.GroupResource) bo
 
 func (ir *InternalRoute) DetermineNamespaceSubset(ns string, gr schema.GroupResource) (string, bool) {
 	for _, limit := range ir.GlobalLimits {
-		if len(limit.Resources) > 0 && !isGRMatchedAPIResources(gr, limit.Resources) {
+		if len(limit.Resources) > 0 && !IsGRMatchedAPIResources(gr, limit.Resources) {
 			continue
 		}
 
@@ -109,12 +146,15 @@ func (ir *InternalRoute) DetermineNamespaceSubset(ns string, gr schema.GroupReso
 		}
 	}
 
-	isResourceMatchPublic := isGRMatchedAPIResources(gr, ir.SubsetPublicResources)
+	isResourceMatchPublic := IsGRMatchedAPIResources(gr, ir.SubsetPublicResources)
 	var isResourceMatchLimit bool
 	for _, subsetLimits := range ir.SubsetLimits {
 		for _, limit := range subsetLimits.Limits {
+			if limit.ObjectSelector != nil {
+				continue
+			}
 			if len(limit.Resources) > 0 {
-				if !isGRMatchedAPIResources(gr, limit.Resources) {
+				if !IsGRMatchedAPIResources(gr, limit.Resources) {
 					continue
 				}
 				isResourceMatchLimit = true
@@ -134,7 +174,7 @@ func (ir *InternalRoute) DetermineNamespaceSubset(ns string, gr schema.GroupReso
 	return "", true
 }
 
-func isGRMatchedAPIResources(gr schema.GroupResource, resources []*APIGroupResourceV1) bool {
+func IsGRMatchedAPIResources(gr schema.GroupResource, resources []*APIGroupResourceV1) bool {
 	for _, r := range resources {
 		if containsString(gr.Group, r.ApiGroups, ResourceAll) && containsString(gr.Resource, r.Resources, ResourceAll) {
 			return true

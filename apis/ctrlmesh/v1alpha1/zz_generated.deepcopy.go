@@ -208,6 +208,11 @@ func (in *MatchLimitSelector) DeepCopyInto(out *MatchLimitSelector) {
 		*out = new(metav1.LabelSelector)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.ObjectSelector != nil {
+		in, out := &in.ObjectSelector, &out.ObjectSelector
+		*out = new(metav1.LabelSelector)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.NamespaceRegex != nil {
 		in, out := &in.NamespaceRegex, &out.NamespaceRegex
 		*out = new(string)

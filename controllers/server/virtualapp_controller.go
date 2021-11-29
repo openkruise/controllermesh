@@ -186,7 +186,10 @@ func (r *VirtualAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 					klog.Infof("VApp %s/%s find Pod %s subset limit resourcesMatching changed, going to reload it.", vApp.Namespace, vApp.Name, pod.Name)
 					diffState.needReload = true
 				}
-				// TODO: if objectSelector changed, we might have to reload all?
+				if newLimit.ObjectSelector != currentLimit.ObjectSelector {
+					klog.Infof("VApp %s/%s find Pod %s subset limit objectSelector changed, going to reload it.", vApp.Namespace, vApp.Name, pod.Name)
+					diffState.needReload = true
+				}
 				namespacesAdded.Insert(sets.NewString(newLimit.Namespaces...).Delete(currentLimit.Namespaces...).UnsortedList()...)
 			}
 			// If there are some namespaced added, check if the namespaces already exist in current spec of other pods

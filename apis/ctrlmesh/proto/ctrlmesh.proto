@@ -42,8 +42,7 @@ message SubsetLimitV1 {
 
 message MatchLimitRuleV1 {
   repeated string namespaces = 1;
-  // TODO
-  //string objectSelector = 2;
+  string objectSelector = 2;
   repeated APIGroupResourceV1 resources = 3;
 }
 

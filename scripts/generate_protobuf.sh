@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-if [[ -z "$(which protoc)" || "$(protoc --version)" != "libprotoc 3.15."* ]]; then
-  echo "Generating protobuf requires protoc 3.15.x. Please download and"
+if [[ -z "$(which protoc)" || ( "$(protoc --version)" != "libprotoc 3.15."* && "$(protoc --version)" != "libprotoc 3.17."* ) ]]; then
+  echo "Generating protobuf requires protoc 3.15.x or 3.17.x. Please download and"
   echo "install the platform appropriate Protobuf package for your OS: "
   echo
   echo "  https://github.com/google/protobuf/releases"
