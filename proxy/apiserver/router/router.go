@@ -131,15 +131,27 @@ func (r *router) injectSelector(route *proto.InternalRoute, httpReq *http.Reques
 	if subset == nil {
 		return fmt.Errorf("can not find subset rule %s", route.Subset)
 	}
-	lbSelector := mergeSelector(determineObjectSelector(subset.Limits, gvr), determineObjectSelector(route.GlobalLimits, gvr))
+	lbSelector := determineObjectSelector(route.GlobalLimits, gvr)
 	if lbSelector.Size() == 0 {
 		return nil
 	}
-	selector, err := metav1.LabelSelectorAsSelector(lbSelector)
+	raw, err := httputil.ParseRawQuery(httpReq.URL.RawQuery)
 	if err != nil {
 		return err
 	}
-	raw, err := httputil.ParseRawQuery(httpReq.URL.RawQuery)
+	var oldLabelSelector *metav1.LabelSelector
+	if oldSelector, ok := raw[labelSelectorKey]; ok {
+		oldSelector, err = url.QueryUnescape(oldSelector)
+		if err != nil {
+			return err
+		}
+		oldLabelSelector, err = metav1.ParseToLabelSelector(oldSelector)
+		if err != nil {
+			return err
+		}
+	}
+	lbSelector = mergeSelector(oldLabelSelector, lbSelector)
+	selector, err := metav1.LabelSelectorAsSelector(lbSelector)
 	if err != nil {
 		return err
 	}

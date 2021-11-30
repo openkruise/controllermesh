@@ -52,7 +52,6 @@ func ConvertProtoSpecToInternal(protoSpec *ProxySpecV1) *InternalSpec {
 				Limits: convertProtoMatchLimitRuleToInternal(subsetLimit.Limits),
 			})
 		}
-		determineSelectorRule(is.RouteInternal)
 	}
 
 	return is
@@ -81,21 +80,6 @@ func convertProtoMatchLimitRuleToInternal(limits []*MatchLimitRuleV1) []*Interna
 	return internalLimits
 }
 
-func determineSelectorRule(route *InternalRoute) {
-	for _, sub := range route.SubsetLimits {
-		if sub.Subset == route.Subset {
-			for _, limit := range sub.Limits {
-				if limit.ObjectSelector == nil {
-					route.IsOnlyObjectSelector = false
-					return
-				}
-			}
-			break
-		}
-	}
-	route.IsOnlyObjectSelector = true
-}
-
 type InternalSpec struct {
 	*ProxySpecV1
 	RouteInternal *InternalRoute
@@ -106,7 +90,6 @@ type InternalRoute struct {
 	GlobalLimits          []*InternalMatchLimitRule
 	SubsetLimits          []*InternalSubsetLimit
 	SubsetPublicResources []*APIGroupResourceV1
-	IsOnlyObjectSelector  bool
 }
 
 type InternalSubsetLimit struct {
@@ -125,9 +108,6 @@ func (ir *InternalRoute) IsDefaultAndEmpty() bool {
 }
 
 func (ir *InternalRoute) IsNamespaceMatch(ns string, gr schema.GroupResource) bool {
-	if ir.IsOnlyObjectSelector {
-		return true
-	}
 	subset, ok := ir.DetermineNamespaceSubset(ns, gr)
 	if !ok {
 		return false
