@@ -75,10 +75,9 @@ type VirtualAppRouteSubRule struct {
 
 type MatchLimitSelector struct {
 	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
+	ObjectSelector    *metav1.LabelSelector `json:"objectSelector,omitempty"`
 	NamespaceRegex    *string               `json:"namespaceRegex,omitempty"`
-	// TODO(FillZpp): should we support objectSelector?
-	//ObjectSelector    *metav1.LabelSelector `json:"objectSelector,omitempty"`
-	Resources []APIGroupResource `json:"resources,omitempty"`
+	Resources         []APIGroupResource    `json:"resources,omitempty"`
 }
 
 type APIGroupResource struct {

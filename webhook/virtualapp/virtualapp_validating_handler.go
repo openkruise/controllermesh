@@ -93,7 +93,7 @@ func validate(obj *ctrlmeshv1alpha1.VirtualApp) error {
 	subRules := sets.NewString()
 	if obj.Spec.Route != nil {
 		for _, m := range obj.Spec.Route.GlobalLimits {
-			if err := validateMatchLimitSelector(m); err != nil {
+			if err := validateMatchLimitSelector(m, false); err != nil {
 				return fmt.Errorf("%s in globalLimits", err)
 			}
 		}
@@ -109,7 +109,7 @@ func validate(obj *ctrlmeshv1alpha1.VirtualApp) error {
 				return fmt.Errorf("no match defined in subRule %s", r.Name)
 			}
 			for _, m := range r.Match {
-				if err := validateMatchLimitSelector(m); err != nil {
+				if err := validateMatchLimitSelector(m, true); err != nil {
 					return fmt.Errorf("%s in subRule %s", err, r.Name)
 				}
 			}
@@ -149,7 +149,7 @@ func validate(obj *ctrlmeshv1alpha1.VirtualApp) error {
 	return nil
 }
 
-func validateMatchLimitSelector(m ctrlmeshv1alpha1.MatchLimitSelector) error {
+func validateMatchLimitSelector(m ctrlmeshv1alpha1.MatchLimitSelector, shouldNotHaveObjectSelector bool) error {
 	switch {
 	case m.NamespaceSelector != nil:
 		if _, err := metav1.LabelSelectorAsSelector(m.NamespaceSelector); err != nil {
@@ -159,11 +159,23 @@ func validateMatchLimitSelector(m ctrlmeshv1alpha1.MatchLimitSelector) error {
 		if _, err := regexp.Compile(*m.NamespaceRegex); err != nil {
 			return fmt.Errorf("parse namespaceRegex error: %v", err)
 		}
+	case m.ObjectSelector != nil:
+		if shouldNotHaveObjectSelector {
+			return fmt.Errorf("object selector can not be defined in subRules")
+		}
+		if _, err := metav1.LabelSelectorAsSelector(m.ObjectSelector); err != nil {
+			return fmt.Errorf("parse ObjectSelector error: %v", err)
+		}
 	default:
 		return fmt.Errorf("empty match limit selector")
 	}
-	if m.NamespaceSelector != nil && m.NamespaceRegex != nil {
+	if (m.NamespaceSelector != nil && m.NamespaceRegex != nil) ||
+		(m.ObjectSelector != nil && m.NamespaceRegex != nil) ||
+		(m.NamespaceSelector != nil && m.ObjectSelector != nil) {
 		return fmt.Errorf("invalid match limit selector")
+	}
+	if m.ObjectSelector != nil && m.Resources == nil {
+		return fmt.Errorf("invalid object selector, no resource specified")
 	}
 	return nil
 }
