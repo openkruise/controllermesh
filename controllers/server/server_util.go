@@ -110,7 +110,7 @@ func generateMatchLimitRules(limits []ctrlmeshv1alpha1.MatchLimitSelector, names
 			includeRules = append(includeRules, &ctrlmeshproto.MatchLimitRuleV1{Namespaces: matchedNamespaces, Resources: resources})
 			excludeRules = append(excludeRules, &ctrlmeshproto.MatchLimitRuleV1{Namespaces: unmatchedNamespaces, Resources: resources})
 		case ms.ObjectSelector != nil:
-			includeRules = append(includeRules, &ctrlmeshproto.MatchLimitRuleV1{Resources: resources, ObjectSelector: ms.ObjectSelector.String()})
+			includeRules = append(includeRules, &ctrlmeshproto.MatchLimitRuleV1{Resources: resources, ObjectSelector: util.DumpJSON(ms.ObjectSelector)})
 		}
 	}
 	return
