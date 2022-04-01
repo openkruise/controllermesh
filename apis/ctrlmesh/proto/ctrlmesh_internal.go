@@ -18,6 +18,7 @@ package proto
 
 import (
 	"encoding/json"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -63,7 +64,7 @@ func convertProtoMatchLimitRuleToInternal(limits []*MatchLimitRuleV1) []*Interna
 
 		if len(limit.ObjectSelector) > 0 {
 			selector := &metav1.LabelSelector{}
-			if err := json.Unmarshal([]byte(limit.ObjectSelector), limit); err != nil {
+			if err := json.Unmarshal([]byte(limit.ObjectSelector), selector); err != nil {
 				klog.Errorf("fail to unmarshal ObjectSelector %s", limit.ObjectSelector)
 			}
 			internalLimits = append(internalLimits, &InternalMatchLimitRule{
@@ -118,6 +119,8 @@ func (ir *InternalRoute) IsNamespaceMatch(ns string, gr schema.GroupResource) bo
 func (ir *InternalRoute) DetermineNamespaceSubset(ns string, gr schema.GroupResource) (string, bool) {
 	for _, limit := range ir.GlobalLimits {
 		if len(limit.Resources) > 0 && !IsGRMatchedAPIResources(gr, limit.Resources) {
+			continue
+		} else if limit.ObjectSelector != nil {
 			continue
 		}
 
