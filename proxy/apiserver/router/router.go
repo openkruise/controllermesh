@@ -157,8 +157,9 @@ func (r *router) injectSelector(route *proto.InternalRoute, httpReq *http.Reques
 	}
 	raw[labelSelectorKey] = url.QueryEscape(selector.String())
 	httpReq.Header.Add("OLD-RAW-QUERY", httpReq.URL.RawQuery)
+	oldURL := httpReq.URL.String()
 	httpReq.URL.RawQuery = httputil.MarshalRawQuery(raw)
-	klog.Infof("inject selector in request rawQuery, %s -> %s", httpReq.Header.Get("OLD-RAW-QUERY"), httpReq.URL.RawQuery)
+	klog.Infof("Injected object selector in request, %s -> %s", oldURL, httpReq.URL.String())
 	return nil
 }
 
