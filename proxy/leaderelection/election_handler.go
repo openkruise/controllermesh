@@ -25,10 +25,7 @@ import (
 
 	coordinationv1 "k8s.io/api/coordination/v1"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apiserver/pkg/endpoints/request"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -37,20 +34,6 @@ import (
 	proxyclient "github.com/openkruise/controllermesh/proxy/client"
 	"github.com/openkruise/controllermesh/util"
 )
-
-var runtimeScheme = runtime.NewScheme()
-var runtimeSerializer runtime.Serializer
-
-func init() {
-	utilruntime.Must(v1.AddToScheme(runtimeScheme))
-	utilruntime.Must(coordinationv1.AddToScheme(runtimeScheme))
-	mediaTypes := serializer.NewCodecFactory(runtimeScheme).SupportedMediaTypes()
-	for _, info := range mediaTypes {
-		if info.MediaType == "application/json" {
-			runtimeSerializer = info.Serializer
-		}
-	}
-}
 
 type Handler interface {
 	Handle(*request.RequestInfo, *http.Request) (bool, *Error)
@@ -110,7 +93,7 @@ func (h *handler) Handle(req *request.RequestInfo, r *http.Request) (handled boo
 	switch req.Verb {
 
 	case "create":
-		if err := adp.DecodeFrom(r.Body); err != nil {
+		if err := adp.DecodeFrom(r); err != nil {
 			return true, &Error{Code: http.StatusBadRequest, Err: err}
 		}
 
