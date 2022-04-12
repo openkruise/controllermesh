@@ -22,17 +22,49 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"mime"
 	"net/http"
 	"strconv"
 
+	"github.com/openkruise/controllermesh/util"
+	v1 "k8s.io/api/apps/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 )
 
+var (
+	runtimeScheme = runtime.NewScheme()
+	runtimeCodec  = serializer.NewCodecFactory(runtimeScheme)
+)
+
+func init() {
+	utilruntime.Must(v1.AddToScheme(runtimeScheme))
+	utilruntime.Must(coordinationv1.AddToScheme(runtimeScheme))
+}
+
+func getSerializer(resp *http.Request) (runtime.Serializer, error) {
+	contentType := resp.Header.Get("Content-Type")
+	if len(contentType) == 0 {
+		return nil, fmt.Errorf("no mediaType in request %s", util.DumpJSON(resp.Header))
+	}
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return nil, fmt.Errorf("invalid mediaType %s in response %s", mediaType, util.DumpJSON(resp.Header))
+	}
+	for _, info := range runtimeCodec.SupportedMediaTypes() {
+		if info.MediaType == mediaType {
+			return info.Serializer, nil
+		}
+	}
+	return nil, fmt.Errorf("not found supported serializer for mediaType %v", mediaType)
+}
+
 type adapter interface {
-	DecodeFrom(body io.ReadCloser) error
+	DecodeFrom(*http.Request) error
 	GetHoldIdentity() (string, bool)
 	GetName() string
 	SetName(name string)
@@ -48,8 +80,12 @@ func newObjectAdapter(obj runtime.Object) *objectAdapter {
 	return &objectAdapter{runtimeObj: obj, metaObj: obj.(metav1.Object)}
 }
 
-func (oa *objectAdapter) DecodeFrom(body io.ReadCloser) error {
-	return decodeObject(body, oa.runtimeObj)
+func (oa *objectAdapter) DecodeFrom(r *http.Request) error {
+	ser, err := getSerializer(r)
+	if err != nil {
+		return err
+	}
+	return decodeObject(ser, r.Body, oa.runtimeObj)
 }
 
 func (oa *objectAdapter) GetHoldIdentity() (string, bool) {
@@ -74,7 +110,8 @@ func (oa *objectAdapter) SetName(name string) {
 
 func (oa *objectAdapter) EncodeInto(r *http.Request) {
 	var length int
-	r.Body, length = encodeObject(oa.runtimeObj)
+	ser, _ := getSerializer(r)
+	r.Body, length = encodeObject(ser, oa.runtimeObj)
 	r.Header.Set("Content-Length", strconv.Itoa(length))
 	r.ContentLength = int64(length)
 }
@@ -87,8 +124,12 @@ func newLeaseAdapter() *leaseAdapter {
 	return &leaseAdapter{lease: &coordinationv1.Lease{}}
 }
 
-func (la *leaseAdapter) DecodeFrom(body io.ReadCloser) error {
-	return decodeObject(body, la.lease)
+func (la *leaseAdapter) DecodeFrom(r *http.Request) error {
+	ser, err := getSerializer(r)
+	if err != nil {
+		return err
+	}
+	return decodeObject(ser, r.Body, la.lease)
 }
 
 func (la *leaseAdapter) GetHoldIdentity() (string, bool) {
@@ -108,12 +149,13 @@ func (la *leaseAdapter) SetName(name string) {
 
 func (la *leaseAdapter) EncodeInto(r *http.Request) {
 	var length int
-	r.Body, length = encodeObject(la.lease)
+	ser, _ := getSerializer(r)
+	r.Body, length = encodeObject(ser, la.lease)
 	r.Header.Set("Content-Length", strconv.Itoa(length))
 	r.ContentLength = int64(length)
 }
 
-func decodeObject(body io.ReadCloser, obj runtime.Object) error {
+func decodeObject(ser runtime.Serializer, body io.ReadCloser, obj runtime.Object) error {
 	if body == nil {
 		return fmt.Errorf("body is empty")
 	}
@@ -122,14 +164,14 @@ func decodeObject(body io.ReadCloser, obj runtime.Object) error {
 	if err != nil {
 		return fmt.Errorf("failed to read the body: %v", err)
 	}
-	if _, _, err := runtimeSerializer.Decode(bodyBytes, nil, obj); err != nil {
+	if _, _, err := ser.Decode(bodyBytes, nil, obj); err != nil {
 		return fmt.Errorf("unabled to decode the response: %v", err)
 	}
 	return nil
 }
 
-func encodeObject(obj runtime.Object) (io.ReadCloser, int) {
+func encodeObject(ser runtime.Serializer, obj runtime.Object) (io.ReadCloser, int) {
 	buf := &bytes.Buffer{}
-	_ = runtimeSerializer.Encode(obj, buf)
+	_ = ser.Encode(obj, buf)
 	return ioutil.NopCloser(buf), buf.Len()
 }
