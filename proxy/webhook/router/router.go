@@ -20,11 +20,11 @@ import (
 	"fmt"
 	"net/http"
 
-	ctrlmeshproto "github.com/openkruise/controllermesh/apis/ctrlmesh/proto"
+	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	proxyclient "github.com/openkruise/controllermesh/proxy/client"
-	admissionv1 "k8s.io/api/admission/v1"
+	"github.com/openkruise/controllermesh/proxy/protomanager"
+	"github.com/openkruise/controllermesh/util"
 )
 
 type Router interface {
@@ -42,45 +42,33 @@ type Error struct {
 	Msg  string
 }
 
-func New(c proxyclient.Client) Router {
-	return &router{proxyClient: c}
+func New(m *protomanager.SpecManager) Router {
+	return &router{specManager: m}
 }
 
 type router struct {
-	proxyClient proxyclient.Client
+	specManager *protomanager.SpecManager
 }
 
 func (r *router) Route(req *admissionv1.AdmissionRequest) (*Accept, *Redirect, *Ignore, *Error) {
-	snapshot := r.proxyClient.GetProtoSpecSnapshot()
-	protoSpec, _, err := snapshot.AcquireSpec()
-	if err != nil {
-		return nil, nil, nil, &Error{Code: http.StatusExpectationFailed, Msg: "route snapshot exceeded changed"}
-	}
-	defer snapshot.ReleaseSpec()
-
 	gr := schema.GroupResource{Group: req.Resource.Group, Resource: req.Resource.Resource}
-	if protoSpec.RouteInternal.IsDefaultAndEmpty() {
+
+	protoSpec := r.specManager.AcquireSpec()
+	defer r.specManager.ReleaseSpec(nil)
+
+	if protoSpec.IsDefaultAndEmpty() {
 		return &Accept{}, nil, nil, nil
 	}
-	matchSubset, ok := protoSpec.RouteInternal.DetermineNamespaceSubset(req.Namespace, gr)
-	if !ok {
+
+	ignore, self, hosts := protoSpec.GetMatchedSubsetEndpoint(req.Namespace, gr)
+	if ignore {
 		return nil, nil, &Ignore{}, nil
 	}
-
-	if matchSubset == ctrlmeshproto.AllSubsetPublic || matchSubset == protoSpec.RouteInternal.Subset {
+	if self {
 		return &Accept{}, nil, nil, nil
 	}
-
-	var hosts []string
-	for _, e := range protoSpec.Endpoints {
-		if e.Subset == matchSubset {
-			hosts = append(hosts, e.Ip)
-		}
-	}
-
 	if len(hosts) == 0 {
-		return nil, nil, nil, &Error{Code: http.StatusNotFound, Msg: fmt.Sprintf("find no endpoints for subset %s", matchSubset)}
+		return nil, nil, nil, &Error{Code: http.StatusNotFound, Msg: fmt.Sprintf("find no endpoints for request %v", util.DumpJSON(req))}
 	}
-
 	return nil, &Redirect{Hosts: hosts}, nil, nil
 }

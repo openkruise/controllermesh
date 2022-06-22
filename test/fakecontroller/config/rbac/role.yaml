@@ -1,0 +1,33 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: manager-role
+rules:
+- apiGroups:
+  - fake.ctrlmesh.kruise.io
+  resources:
+  - foos
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - fake.ctrlmesh.kruise.io
+  resources:
+  - foos/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - fake.ctrlmesh.kruise.io
+  resources:
+  - foos/status
+  verbs:
+  - get
+  - patch
+  - update

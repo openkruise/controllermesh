@@ -8,7 +8,8 @@ service ControllerMesh {
 
 message ProxyStatusV1 {
   SelfInfo selfInfo = 1;
-  ProxySpecV1 currentSpec = 2;
+  MetaStateV1 metaState = 2;
+  LeaderElectionStateV1 leaderElectionState = 3;
 }
 
 message SelfInfo {
@@ -16,11 +17,22 @@ message SelfInfo {
   string name = 2;
 }
 
+message MetaStateV1 {
+  string subset = 1;
+  string expectedHash = 2;
+  string currentHash = 3;
+  string hashUnloadReason = 4;
+}
+
+message LeaderElectionStateV1 {
+  string identity = 1;
+  bool isLeader = 2;
+}
+
 message ProxySpecV1 {
   SpecMetaV1 meta = 1;
   RouteV1 route = 2;
   repeated EndpointV1 endpoints = 3;
-  ControlInstructionV1 controlInstruction = 4;
 }
 
 message SpecMetaV1 {
@@ -55,8 +67,4 @@ message EndpointV1 {
   string name = 1;
   string subset = 2;
   string ip = 3;
-}
-
-message ControlInstructionV1 {
-  bool blockLeaderElection = 1;
 }

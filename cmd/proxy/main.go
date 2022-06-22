@@ -21,10 +21,12 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/pflag"
@@ -36,8 +38,8 @@ import (
 	"github.com/openkruise/controllermesh/apis/ctrlmesh/constants"
 	"github.com/openkruise/controllermesh/client"
 	apiserverproxy "github.com/openkruise/controllermesh/proxy/apiserver"
-	proxyclient "github.com/openkruise/controllermesh/proxy/client"
 	"github.com/openkruise/controllermesh/proxy/metrics"
+	"github.com/openkruise/controllermesh/proxy/protomanager"
 	webhookproxy "github.com/openkruise/controllermesh/proxy/webhook"
 	"github.com/openkruise/controllermesh/util"
 )
@@ -53,6 +55,7 @@ var (
 )
 
 func main() {
+	rand.Seed(time.Now().UnixNano())
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
 
@@ -71,7 +74,7 @@ func main() {
 
 	ctx := signals.SetupSignalHandler()
 	readyHandler := &healthz.Handler{}
-	proxyClient := proxyclient.NewGrpcClient()
+	proxyClient := protomanager.NewGrpcClient()
 	if err := proxyClient.Start(ctx); err != nil {
 		klog.Fatalf("Failed to start proxy client: %v", err)
 	}
@@ -84,7 +87,7 @@ func main() {
 			CertDir:     *webhookCertDir,
 			BindPort:    *proxyWebhookPort,
 			WebhookPort: *webhookServePort,
-			ProxyClient: proxyClient,
+			SpecManager: proxyClient.GetSpecManager(),
 		}
 		proxy := webhookproxy.NewProxy(opts)
 		readyHandler.Checks["webhookProxy"] = proxy.HealthFunc
@@ -105,7 +108,7 @@ func main() {
 		opts.SecureServingOptions.BindAddress = net.ParseIP("127.0.0.1")
 		opts.SecureServingOptions.BindPort = *proxyApiserverPort
 		opts.LeaderElectionName = *leaderElectionName
-		opts.ProxyClient = proxyClient
+		opts.SpecManager = proxyClient.GetSpecManager()
 		errs := opts.Validate()
 		if len(errs) > 0 {
 			klog.Fatalf("Failed to validate apiserver-proxy options %s: %v", util.DumpJSON(opts), errs)

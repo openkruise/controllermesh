@@ -20,12 +20,12 @@ import (
 	"context"
 	"flag"
 	"sort"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,17 +42,32 @@ import (
 var (
 	concurrentReconciles = flag.Int("ctrlmesh-server-workers", 3, "Max concurrent workers for CtrlMesh Server controller.")
 	//controllerKind       = ctrlmeshv1alpha1.SchemeGroupVersion.WithKind("VirtualApp")
+
+	// podHashExpectation type is map[types.UID]string
+	podHashExpectation = sync.Map{}
+	// podDeletionExpectation type is map[types.UID]struct{}
+	podDeletionExpectation = sync.Map{}
 )
 
 type VirtualAppReconciler struct {
 	client.Client
+	recorder record.EventRecorder
+}
+
+type syncPod struct {
+	pod           *v1.Pod
+	conn          *grpcSrvConnection
+	dispatched    bool
+	currentStatus *ctrlmeshproto.ProxyStatusV1
+	newSpec       *ctrlmeshproto.ProxySpecV1
 }
 
 //+kubebuilder:rbac:groups=ctrlmesh.kruise.io,resources=virtualapps,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=ctrlmesh.kruise.io,resources=virtualapps/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=ctrlmesh.kruise.io,resources=virtualapps/finalizers,verbs=update
-//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;delete
 //+kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=events,verbs=get;list;watch;create;update;patch;delete
 
 func (r *VirtualAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, retErr error) {
 	startTime := time.Now()
@@ -78,17 +93,74 @@ func (r *VirtualAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return reconcile.Result{}, err
 	}
 
-	pods, err := r.getPodsForVApp(vApp)
+	allPods, err := r.getPodsForVApp(vApp)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
 
-	// wait for all pods satisfied
-	for _, pod := range pods {
-		if v, ok := expectationsSrvHash.Load(types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}); ok {
-			klog.Warningf("Skip reconcile VApp %s for Pod %s has dirty expectation %s", req, pod.Name, util.DumpJSON(v))
+	// filter and wait for all pods satisfied
+	var activePods []*v1.Pod
+	var syncPods []syncPod
+	for _, pod := range allPods {
+		if !util.IsPodActive(pod) {
+			// Guarantee that all containers in inactive pods should be stopped
+			if runningContainers := getRunningContainers(pod); len(runningContainers) > 0 {
+				klog.Warningf("Skip reconcile VApp %s for Pod %s is inactive but containers %s are running", req, pod.Name, runningContainers)
+				return reconcile.Result{}, nil
+			}
+			continue
+		}
+		if _, ok := podDeletionExpectation.Load(pod.UID); ok {
+			klog.Warningf("Skip reconcile VApp %s for Pod %s is expected to be already deleted", req, pod.Name)
 			return reconcile.Result{}, nil
 		}
+		activePods = append(activePods, pod)
+
+		var conn *grpcSrvConnection
+		if v, ok := cachedGrpcSrvConnection.Load(pod.UID); !ok || v == nil {
+			// No connection from the Pod, could be new Pod or the proxy container exited
+			if pod.Status.Phase == v1.PodRunning && util.IsPodReady(pod) {
+				klog.Warningf("Skip reconcile VApp %s find no connection from ready Pod %s yet", req, pod.Name)
+				return reconcile.Result{RequeueAfter: time.Minute}, nil
+			}
+
+			if pod.Status.Phase == v1.PodPending && time.Since(pod.CreationTimestamp.Time) < time.Minute {
+				klog.Warningf("Skip reconcile VApp %s waiting for pending Pod %s at most 1min", req, pod.Name)
+				return reconcile.Result{RequeueAfter: time.Minute - time.Since(pod.CreationTimestamp.Time)}, nil
+			}
+
+			klog.Warningf("VApp %s ignores %s Pod %s that has no connection yet", req, pod.Status.Phase, pod.Name)
+			continue
+		} else {
+			conn = v.(*grpcSrvConnection)
+		}
+
+		conn.mu.Lock()
+		status := conn.status
+		dispatched := conn.sendTimes > 0
+		disconnected := conn.disconnected
+		conn.mu.Unlock()
+
+		if disconnected {
+			klog.Warningf("Skip reconcile VApp %s for Pod %s has disconnected", req, pod.Name)
+			return reconcile.Result{}, nil
+		}
+
+		if v, ok := podHashExpectation.Load(pod.UID); ok {
+			expectHash := v.(string)
+			if status.MetaState == nil || expectHash != status.MetaState.ExpectedHash {
+				klog.Warningf("Skip reconcile VApp %s for Pod %s has unsatisfied hash state %v (expected %s)", req, pod.Name, util.DumpJSON(status), expectHash)
+				return reconcile.Result{}, nil
+			}
+			podHashExpectation.Delete(pod.UID)
+		}
+
+		syncPods = append(syncPods, syncPod{
+			pod:           pod,
+			conn:          conn,
+			dispatched:    dispatched,
+			currentStatus: status,
+		})
 	}
 
 	namespaces, err := r.getActiveNamespaces()
@@ -97,158 +169,123 @@ func (r *VirtualAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	protoRoute := generateProtoRoute(vApp, namespaces)
-	protoEndpoints := generateProtoEndpoints(vApp, pods)
+	protoEndpoints := generateProtoEndpoints(vApp, activePods)
+	hash := calculateSpecHash(&ctrlmeshproto.ProxySpecV1{Route: protoRoute, Endpoints: protoEndpoints})
 
-	// build diffStateForPods
-	var diffStateForPods []podDiffState
-	for _, pod := range pods {
-		var conn *grpcSrvConnection
-		if v, ok := cachedGrpcSrvConnection.Load(types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}); !ok || v == nil {
-			if pod.Status.Phase == v1.PodRunning && util.IsPodReady(pod) {
-				klog.Warningf("VApp %s/%s find no connection from ready Pod %s yet", vApp.Namespace, vApp.Name, pod.Name)
-				return reconcile.Result{RequeueAfter: time.Minute}, nil
-			}
-			continue
-		} else {
-			conn = v.(*grpcSrvConnection)
-		}
+	// Complete sync states of Pods and calculate if pods need to dispatch, update or delete
+	var podsProtoToDispatch, podsProtoToUpdate, leaderPodsToDelete, nonLeaderPodsToDelete []syncPod
+	for i := range syncPods {
+		syncingPod := &syncPods[i]
+		subset := determinePodSubset(vApp, syncingPod.pod)
+		metaState := syncingPod.currentStatus.MetaState
 
-		subset := determinePodSubset(vApp, pod)
-		newSpec := &ctrlmeshproto.ProxySpecV1{
-			Meta: &ctrlmeshproto.SpecMetaV1{VAppName: vApp.Name},
+		syncingPod.newSpec = &ctrlmeshproto.ProxySpecV1{
+			Meta: &ctrlmeshproto.SpecMetaV1{
+				VAppName: vApp.Name,
+				Hash:     hash,
+			},
 			Route: &ctrlmeshproto.RouteV1{
 				Subset:                subset,
 				GlobalLimits:          protoRoute.GlobalLimits,
 				SubsetLimits:          protoRoute.SubsetLimits,
 				SubsetPublicResources: protoRoute.SubsetPublicResources,
 			},
-			Endpoints:          protoEndpoints,
-			ControlInstruction: &ctrlmeshproto.ControlInstructionV1{},
+			Endpoints: protoEndpoints,
 		}
 
-		conn.mu.Lock()
-		currentSpec := conn.status.currentSpec
-		conn.mu.Unlock()
-
-		diffStateForPods = append(diffStateForPods, podDiffState{
-			pod:         pod,
-			conn:        conn,
-			newSpec:     newSpec,
-			currentSpec: currentSpec,
-		})
-	}
-
-	// check reload based on diffStateForPods
-	var shouldReloadAll bool
-	for _, diffState := range diffStateForPods {
-		subset := diffState.newSpec.Route.Subset
-		currentSpec := diffState.currentSpec
-		pod := diffState.pod
-		if currentSpec != nil && currentSpec.Route != nil {
-			// If subset changed, reload all.
-			if currentSpec.Route.Subset != subset {
-				klog.Infof("VApp %s/%s find Pod %s subset changed from %s to %s, going to reload all.", vApp.Namespace, vApp.Name, pod.Name, currentSpec.Route.Subset, subset)
-				shouldReloadAll = true
-				continue
-			}
-			// If globalLimits changed, reload this pod.
-			if !util.IsJSONObjectEqual(currentSpec.Route.GlobalLimits, protoRoute.GlobalLimits) {
-				klog.Infof("VApp %s/%s find Pod %s globalLimits changed, going to reload it.", vApp.Namespace, vApp.Name, pod.Name)
-				diffState.needReload = true
-			}
-
-			// If subsetPublicResources changed, reload it.
-			if !util.IsJSONObjectEqual(currentSpec.Route.SubsetPublicResources, protoRoute.SubsetPublicResources) {
-				klog.Infof("VApp %s/%s find Pod %s subsetPublicResources changed, going to reload it.", vApp.Namespace, vApp.Name, pod.Name)
-				diffState.needReload = true
-			}
-
-			// If number of subset limits changed, reload all.
-			newSubsetLimits := ctrlmeshproto.GetLimitsForSubset(subset, protoRoute.SubsetLimits)
-			currentSubsetLimits := ctrlmeshproto.GetLimitsForSubset(subset, currentSpec.Route.SubsetLimits)
-			if util.IsJSONObjectEqual(newSubsetLimits, currentSubsetLimits) {
-				continue
-			}
-
-			// If number of subset limits changed, reload all.
-			if len(newSubsetLimits) != len(currentSubsetLimits) {
-				klog.Infof("VApp %s/%s find Pod %s number of subset limits changed from %s to %s, going to reload all.", vApp.Namespace, vApp.Name, pod.Name, len(currentSubsetLimits), len(newSubsetLimits))
-				shouldReloadAll = true
-				continue
-			}
-
-			// Get all namespaces added in subset limits
-			namespacesAdded := sets.NewString()
-			for i := 0; i < len(newSubsetLimits); i++ {
-				newLimit := newSubsetLimits[i]
-				currentLimit := currentSubsetLimits[i]
-				if !util.IsJSONObjectEqual(newLimit.Resources, currentLimit.Resources) {
-					klog.Infof("VApp %s/%s find Pod %s subset limit resourcesMatching changed, going to reload it.", vApp.Namespace, vApp.Name, pod.Name)
-					diffState.needReload = true
-				}
-				namespacesAdded.Insert(sets.NewString(newLimit.Namespaces...).Delete(currentLimit.Namespaces...).UnsortedList()...)
-			}
-			// If there are some namespaced added, check if the namespaces already exist in current spec of other pods
-			if namespacesAdded.Len() > 0 {
-				for _, anotherDiffState := range diffStateForPods {
-					anotherPod := anotherDiffState.pod
-					if anotherPod.Name == pod.Name {
-						continue
-					}
-					if anotherDiffState.currentSpec == nil || anotherDiffState.currentSpec.Route == nil {
-						continue
-					}
-					currentLimitOfAnotherPod := ctrlmeshproto.GetLimitsForSubset(anotherDiffState.newSpec.Route.Subset, anotherDiffState.currentSpec.Route.SubsetLimits)
-					for _, limit := range currentLimitOfAnotherPod {
-						var isOverlapping bool
-						for _, ns := range limit.Namespaces {
-							if namespacesAdded.Has(ns) {
-								klog.Infof("VApp %s/%s find Pod %s subset limit add namespace %s which already existed in pod %s, going to reload them.", vApp.Namespace, vApp.Name, pod.Name, ns, anotherPod.Name)
-								diffState.needReload = true
-								anotherDiffState.needReload = true
-								isOverlapping = true
-							}
-						}
-						if isOverlapping {
-							break
-						}
-					}
-				}
-			}
+		// Should be the first time start and connect
+		if metaState == nil {
+			podsProtoToDispatch = append(podsProtoToDispatch, *syncingPod)
+			continue
 		}
-	}
-
-	// sync messages based on diffStateForPods and shouldReloadAll
-	for _, diffState := range diffStateForPods {
-
-		newSpec := diffState.newSpec
-		if shouldReloadAll || diffState.needReload {
-			newSpec.ControlInstruction.BlockLeaderElection = true
+		var isLeader bool
+		if syncingPod.currentStatus.LeaderElectionState != nil {
+			isLeader = syncingPod.currentStatus.LeaderElectionState.IsLeader
 		}
-		newSpec.Meta.Hash = calculateSpecHash(newSpec)
-		if diffState.currentSpec != nil && diffState.currentSpec.Meta != nil && diffState.currentSpec.Meta.Hash == newSpec.Meta.Hash {
+
+		if metaState.Subset != subset {
+			klog.Infof("VApp %s find Pod %s should delete, subset changed from %s to %s.", req, syncingPod.pod.Name, metaState.Subset, subset)
+			if isLeader {
+				leaderPodsToDelete = append(leaderPodsToDelete, *syncingPod)
+			} else {
+				nonLeaderPodsToDelete = append(nonLeaderPodsToDelete, *syncingPod)
+			}
+			continue
+		}
+		if metaState.ExpectedHash != metaState.CurrentHash {
+			klog.Infof("VAPP %s find Pod %s should delete, expectedHash(%s) != currentHash(%s), because %s",
+				req, syncingPod.pod.Name, metaState.ExpectedHash, metaState.CurrentHash, metaState.HashUnloadReason)
+			if isLeader {
+				leaderPodsToDelete = append(leaderPodsToDelete, *syncingPod)
+			} else {
+				nonLeaderPodsToDelete = append(nonLeaderPodsToDelete, *syncingPod)
+			}
 			continue
 		}
 
-		klog.Infof("Preparing to send proto spec %v (hash: %v) to Pod %s/%s in VApp %s/%s", util.DumpJSON(newSpec), newSpec.Meta.Hash, diffState.pod.Namespace, diffState.pod.Name, vApp.Namespace, vApp.Name)
-		expectationsSrvHash.Store(types.NamespacedName{Namespace: diffState.pod.Namespace, Name: diffState.pod.Name}, newSpec.Meta.Hash)
-		if err := diffState.conn.srv.Send(newSpec); err != nil {
-			expectationsSrvHash.Delete(types.NamespacedName{Namespace: diffState.pod.Namespace, Name: diffState.pod.Name})
-			klog.Infof("Failed to send proto spec to Pod %s/%s in VApp %s/%s: %v", diffState.pod.Namespace, diffState.pod.Name, vApp.Namespace, vApp.Name, err)
-			return reconcile.Result{}, err
+		if syncingPod.newSpec.Meta.Hash != metaState.ExpectedHash {
+			klog.Infof("VApp %s find Pod %s should update, hash update from %s to %s",
+				req, syncingPod.pod.Name, metaState.ExpectedHash, syncingPod.newSpec.Meta.Hash)
+			podsProtoToUpdate = append(podsProtoToUpdate, *syncingPod)
+			continue
+		}
+
+		// maybe re-connected Pods
+		if !syncingPod.dispatched {
+			podsProtoToDispatch = append(podsProtoToDispatch, *syncingPod)
 		}
 	}
 
-	return ctrl.Result{}, nil
-}
+	if len(podsProtoToDispatch) == 0 && len(podsProtoToUpdate) == 0 && len(leaderPodsToDelete) == 0 && len(nonLeaderPodsToDelete) == 0 {
+		klog.Infof("VApp %s find no Pods need to delete or send proto spec", req)
+		return ctrl.Result{}, nil
+	}
 
-type podDiffState struct {
-	pod         *v1.Pod
-	conn        *grpcSrvConnection
-	newSpec     *ctrlmeshproto.ProxySpecV1
-	currentSpec *ctrlmeshproto.ProxySpecV1
+	// firstly delete those non-leader Pods, then leader Pods
+	isLeaderMsg := "non-leader"
+	podsToDelete := nonLeaderPodsToDelete
+	if len(podsToDelete) == 0 {
+		podsToDelete = leaderPodsToDelete
+		isLeaderMsg = "leader"
+	}
+	for _, syncingPod := range podsToDelete {
+		klog.Infof("VApp %s preparing to delete %v Pod %s", req, isLeaderMsg, syncingPod.pod.Name)
+		if err = r.Delete(context.TODO(), syncingPod.pod); err != nil {
+			r.recorder.Eventf(vApp, v1.EventTypeWarning, "FailedToDeletePod", "failed to delete %v Pod %s: %v", isLeaderMsg, syncingPod.pod.Name, err)
+		} else {
+			r.recorder.Eventf(vApp, v1.EventTypeNormal, "SuccessfullyDeletePod", "successfully delete %v Pod %s", isLeaderMsg, syncingPod.pod.Name)
+			podDeletionExpectation.Store(syncingPod.pod.UID, struct{}{})
+		}
+	}
+	if len(podsToDelete) > 0 {
+		return ctrl.Result{}, err
+	}
 
-	needReload bool
+	// if there is no pods to delete, send new proto spec to all Pods need to update
+	for _, syncingPod := range podsProtoToUpdate {
+		klog.Infof("VApp %s preparing to update proto spec %v to Pod %s", req, util.DumpJSON(syncingPod.newSpec), syncingPod.pod.Name)
+		if err = syncingPod.conn.send(syncingPod.newSpec); err != nil {
+			r.recorder.Eventf(vApp, v1.EventTypeWarning, "FailedToUpdateProto", "failed to update Pod %s proto spec: %v", syncingPod.pod.Name, err)
+		} else {
+			r.recorder.Eventf(vApp, v1.EventTypeNormal, "SuccessfullyUpdateProto", "successfully update Pod %s proto spec", syncingPod.pod.Name)
+			podHashExpectation.Store(syncingPod.pod.UID, syncingPod.newSpec.Meta.Hash)
+		}
+	}
+	if len(podsProtoToUpdate) > 0 {
+		return ctrl.Result{}, err
+	}
+
+	// if there is no pods to delete and no proto to update, send new proto spec to all Pods first-time connected
+	for _, syncingPod := range podsProtoToDispatch {
+		klog.Infof("VApp %s preparing to dispatch proto spec %v to Pod %s", req, util.DumpJSON(syncingPod.newSpec), syncingPod.pod.Name)
+		if err = syncingPod.conn.send(syncingPod.newSpec); err != nil {
+			r.recorder.Eventf(vApp, v1.EventTypeWarning, "FailedToDispatchProto", "failed to dispatch Pod %s proto spec: %v", syncingPod.pod.Name, err)
+		} else {
+			r.recorder.Eventf(vApp, v1.EventTypeNormal, "SuccessfullyDispatchProto", "successfully dispatch Pod %s proto spec", syncingPod.pod.Name)
+			podHashExpectation.Store(syncingPod.pod.UID, syncingPod.newSpec.Meta.Hash)
+		}
+	}
+	return ctrl.Result{}, err
 }
 
 func (r *VirtualAppReconciler) getPodsForVApp(vApp *ctrlmeshv1alpha1.VirtualApp) ([]*v1.Pod, error) {
@@ -258,10 +295,7 @@ func (r *VirtualAppReconciler) getPodsForVApp(vApp *ctrlmeshv1alpha1.VirtualApp)
 	}
 	var pods []*v1.Pod
 	for i := range podList.Items {
-		pod := &podList.Items[i]
-		if util.IsPodActive(pod) {
-			pods = append(pods, pod)
-		}
+		pods = append(pods, &podList.Items[i])
 	}
 	sort.SliceStable(pods, func(i, j int) bool { return pods[i].Name < pods[j].Name })
 	return pods, nil
@@ -285,6 +319,7 @@ func (r *VirtualAppReconciler) getActiveNamespaces() ([]*v1.Namespace, error) {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *VirtualAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.recorder = mgr.GetEventRecorderFor("virtualapp-controller")
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{MaxConcurrentReconciles: *concurrentReconciles}).
 		For(&ctrlmeshv1alpha1.VirtualApp{}).

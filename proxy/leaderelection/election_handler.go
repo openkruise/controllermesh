@@ -21,53 +21,49 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	coordinationv1 "k8s.io/api/coordination/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apiserver/pkg/endpoints/request"
-	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
 	"github.com/openkruise/controllermesh/apis/ctrlmesh/constants"
-	proxyclient "github.com/openkruise/controllermesh/proxy/client"
+	ctrlmeshproto "github.com/openkruise/controllermesh/apis/ctrlmesh/proto"
+	"github.com/openkruise/controllermesh/proxy/protomanager"
 	"github.com/openkruise/controllermesh/util"
 )
 
 type Handler interface {
-	Handle(*request.RequestInfo, *http.Request) (bool, *Error)
+	Handle(*request.RequestInfo, *http.Request) (bool, func(response *http.Response) error, error)
 }
 
-type Error struct {
-	Code int
-	Err  error
-}
-
-func New(cli clientset.Interface, proxyClient proxyclient.Client, lockName string) Handler {
-	snapshot := proxyClient.GetProtoSpecSnapshot()
-	return &handler{client: cli, proxyClient: proxyClient, namespace: os.Getenv(constants.EnvPodNamespace), lockName: lockName, routeSnapshot: snapshot}
+func New(specManger *protomanager.SpecManager, lockName string) Handler {
+	protoSpec := specManger.AcquireSpec()
+	defer specManger.ReleaseSpec(nil)
+	return &handler{
+		specManger: specManger,
+		namespace:  os.Getenv(constants.EnvPodNamespace),
+		lockName:   lockName,
+		subset:     protoSpec.Route.Subset,
+	}
 }
 
 type handler struct {
-	client      clientset.Interface
-	proxyClient proxyclient.Client
-	namespace   string
-	lockName    string
-
-	routeSnapshot       *proxyclient.ProtoSpecSnapshot
-	identity            string
-	lastTranslationTime time.Time
+	specManger *protomanager.SpecManager
+	namespace  string
+	lockName   string
+	subset     string
 }
 
-func (h *handler) Handle(req *request.RequestInfo, r *http.Request) (handled bool, retErr *Error) {
+func (h *handler) Handle(req *request.RequestInfo, r *http.Request) (handled bool, modifyResponse func(response *http.Response) error, retErr error) {
 	if !req.IsResourceRequest || req.Subresource != "" {
-		return false, nil
+		return false, nil, nil
 	}
 	if req.Namespace != h.namespace {
-		return false, nil
+		return false, nil, nil
 	} else if req.Verb != "create" && req.Name != h.lockName && !strings.HasPrefix(req.Name, h.lockName+"---") {
-		return false, nil
+		return false, nil, nil
 	}
 
 	var adp adapter
@@ -80,7 +76,7 @@ func (h *handler) Handle(req *request.RequestInfo, r *http.Request) (handled boo
 	case coordinationv1.SchemeGroupVersion.WithResource("leases"):
 		adp = newLeaseAdapter()
 	default:
-		return false, nil
+		return false, nil, nil
 	}
 	defer func() {
 		if retErr != nil {
@@ -94,70 +90,73 @@ func (h *handler) Handle(req *request.RequestInfo, r *http.Request) (handled boo
 
 	case "create":
 		if err := adp.DecodeFrom(r); err != nil {
-			return true, &Error{Code: http.StatusBadRequest, Err: err}
+			return true, nil, err
 		}
 
 		if adp.GetName() != h.lockName {
-			return false, nil
+			return false, nil, nil
 		}
 
 		holdIdentity, ok := adp.GetHoldIdentity()
 		if !ok {
-			return true, &Error{Code: http.StatusBadRequest, Err: fmt.Errorf("find no hold identity resource lock")}
+			return true, nil, fmt.Errorf("find no hold identity resource lock")
 		}
 
-		defer func() {
-			h.identity = holdIdentity
-			h.lastTranslationTime = time.Now()
-		}()
-
-		protoSpec, refreshTime, err := h.routeSnapshot.AcquireSpec()
-		if err != nil {
-			if h.identity != holdIdentity && h.lastTranslationTime.After(refreshTime) {
-				h.routeSnapshot = h.proxyClient.GetProtoSpecSnapshot()
-				klog.Infof("Starting new proto spec with new Leader Election ID %s", holdIdentity)
-				// still reject, for next trusted get
-			} else {
-				klog.V(5).Infof("Find snapshot exceeded, waiting for re-elect, last identity: %v, current identity: %v, last translation time: %v, snapshot refreshTime: %v",
-					h.identity, holdIdentity, h.lastTranslationTime, refreshTime)
+		modifyResponse = func(resp *http.Response) error {
+			if resp.StatusCode == http.StatusOK {
+				h.specManger.UpdateLeaderElection(&ctrlmeshproto.LeaderElectionStateV1{
+					Identity: holdIdentity,
+					IsLeader: true,
+				})
 			}
-			// it means this identity may have ListWatch of old hash
-			return true, &Error{Code: http.StatusExpectationFailed, Err: fmt.Errorf("snapshot exceeded")}
+			return nil
 		}
-		defer h.routeSnapshot.ReleaseSpec()
 
-		if protoSpec.Route.Subset != "" {
-			name := setSubsetIntoName(h.lockName, protoSpec.Route.Subset)
+		if h.subset != "" {
+			name := setSubsetIntoName(h.lockName, h.subset)
 			adp.SetName(name)
 		}
 
 		adp.EncodeInto(r)
 
-		return true, nil
+		return true, modifyResponse, nil
 
 	case "update":
-		return true, nil
+		if err := adp.DecodeFrom(r); err != nil {
+			return true, nil, err
+		}
+
+		holdIdentity, ok := adp.GetHoldIdentity()
+		if !ok {
+			return true, nil, fmt.Errorf("find no hold identity resource lock")
+		}
+
+		modifyResponse = func(resp *http.Response) error {
+			if resp.StatusCode == http.StatusOK {
+				h.specManger.UpdateLeaderElection(&ctrlmeshproto.LeaderElectionStateV1{
+					Identity: holdIdentity,
+					IsLeader: true,
+				})
+			}
+			return nil
+		}
+
+		// Do NOT modify the lock name again for update request
+
+		adp.EncodeInto(r)
+
+		return true, modifyResponse, nil
 
 	case "get":
-		protoSpec, _, err := h.routeSnapshot.AcquireSpec()
-		if err != nil {
-			klog.Warningf("Rejecting election get for route snapshot exceeded")
-			return true, &Error{Code: http.StatusNotFound, Err: fmt.Errorf("fake not found for route snapshot exceeded")}
+		if h.subset != "" {
+			r.URL.Path = util.LastReplace(r.URL.Path, h.lockName, setSubsetIntoName(h.lockName, h.subset))
 		}
-		defer h.routeSnapshot.ReleaseSpec()
-
-		if protoSpec.ControlInstruction != nil && protoSpec.ControlInstruction.BlockLeaderElection {
-			return true, &Error{Code: http.StatusNotAcceptable, Err: fmt.Errorf("blocking leader election")}
-		}
-		if protoSpec.Route.Subset != "" {
-			r.URL.Path = util.LastReplace(r.URL.Path, h.lockName, setSubsetIntoName(h.lockName, protoSpec.Route.Subset))
-		}
-		return true, nil
+		return true, nil, nil
 
 	default:
 		klog.Infof("Ignore %s lock operation", req.Verb)
 	}
-	return false, nil
+	return false, nil, nil
 }
 
 func setSubsetIntoName(name, subset string) string {

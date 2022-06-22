@@ -26,7 +26,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
@@ -156,7 +155,7 @@ func (r *ManagerStateReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return fmt.Errorf("get service %s error: %v", svcNamespacedName, err)
 	}
 
-	podSelector, err = metav1.LabelSelectorAsSelector(&metav1.LabelSelector{MatchLabels: svc.Spec.Selector})
+	podSelector, err = labels.ValidatedSelectorFromSet(svc.Spec.Selector)
 	if err != nil {
 		return fmt.Errorf("parse service %s selector %v error: %v", svcNamespacedName, svc.Spec.Selector, err)
 	}

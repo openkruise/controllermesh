@@ -19,7 +19,6 @@ package apiserver
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -38,9 +37,9 @@ import (
 	"k8s.io/client-go/transport"
 	"k8s.io/klog/v2"
 
-	"github.com/openkruise/controllermesh/client"
 	"github.com/openkruise/controllermesh/proxy/apiserver/router"
 	apiserverrouter "github.com/openkruise/controllermesh/proxy/apiserver/router"
+	ctrlmeshfilters "github.com/openkruise/controllermesh/proxy/filters"
 	trafficfilter "github.com/openkruise/controllermesh/proxy/filters/traffic"
 	leaderelectionproxy "github.com/openkruise/controllermesh/proxy/leaderelection"
 	"github.com/openkruise/controllermesh/util"
@@ -72,19 +71,19 @@ func NewProxy(opts *Options) (*Proxy, error) {
 	inHandler := &handler{
 		cfg:       opts.Config,
 		transport: tp,
-		router:    router.New(opts.ProxyClient),
+		router:    router.New(opts.SpecManager),
 	}
 	if opts.LeaderElectionName != "" {
-		inHandler.electionHandler = leaderelectionproxy.New(client.GetGenericClient().KubeClient, opts.ProxyClient, opts.LeaderElectionName)
+		inHandler.electionHandler = leaderelectionproxy.New(opts.SpecManager, opts.LeaderElectionName)
 	} else {
 		klog.Infof("Skip proxy leader election for no leader-election-name set")
 	}
 
 	var handler http.Handler = inHandler
-	handler = trafficfilter.WithTrafficControl(handler, opts.ProxyClient)
+	handler = trafficfilter.WithTrafficControl(handler, opts.SpecManager)
 	handler = genericfilters.WithWaitGroup(handler, opts.LongRunningFunc, opts.HandlerChainWaitGroup)
 	handler = genericapifilters.WithRequestInfo(handler, opts.RequestInfoResolver)
-	handler = genericfilters.WithPanicRecovery(handler, opts.RequestInfoResolver)
+	handler = ctrlmeshfilters.WithPanicRecovery(handler, opts.RequestInfoResolver)
 
 	return &Proxy{opts: opts, servingInfo: servingInfo, handler: handler}, nil
 }
@@ -105,40 +104,59 @@ type handler struct {
 }
 
 func (h *handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+	startTime := time.Now()
 	requestInfo, ok := apirequest.RequestInfoFrom(r.Context())
 	if !ok {
 		klog.Errorf("%s %s %s, no request info in context", r.Method, r.Header.Get("Content-Type"), r.URL)
 		http.Error(rw, "no request info in context", http.StatusBadRequest)
 		return
 	}
-	klog.V(5).Infof("%s %s %s request info %s", r.Method, r.Header.Get("Content-Type"), r.URL, util.DumpJSON(requestInfo))
-
-	var modifyResponse func(*http.Response) error
-	var modifyBody func(*http.Response) io.Reader
-	if h.electionHandler != nil {
-		if ok, wrapErr := h.electionHandler.Handle(requestInfo, r); wrapErr != nil {
-			klog.Errorf("%s %s %s, failed to adapt leader election lock: %v", r.Method, r.Header.Get("Content-Type"), r.URL, wrapErr)
-			http.Error(rw, wrapErr.Err.Error(), wrapErr.Code)
-			return
-		} else if ok {
-			p := h.newProxy(r)
-			p.ServeHTTP(rw, r)
-			return
-		}
-
-		accept, err := h.router.Route(r, requestInfo)
-		if err != nil {
-			http.Error(rw, err.Msg, err.Code)
-			return
-		}
-		modifyResponse = accept.ModifyResponse
-		modifyBody = accept.ModifyBody
-	}
 
 	if requestInfo.IsResourceRequest && upgradeSubresources.Has(requestInfo.Subresource) {
 		h.upgradeProxyHandler(rw, r)
 		return
 	}
+
+	if h.electionHandler != nil {
+		if ok, modifyResponse, err := h.electionHandler.Handle(requestInfo, r); err != nil {
+			klog.Errorf("%s %s %s, failed to adapt leader election lock: %v", r.Method, r.Header.Get("Content-Type"), r.URL, err)
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		} else if ok {
+			p := h.newProxy(r)
+			p.ModifyResponse = modifyResponse
+			p.ServeHTTP(rw, r)
+			return
+		}
+	}
+
+	accept, err := h.router.Route(r, requestInfo)
+	if err != nil {
+		http.Error(rw, err.Msg, err.Code)
+		return
+	}
+	modifyBody := accept.ModifyBody
+	var statusCode int
+	modifyResponse := func(resp *http.Response) error {
+		statusCode = resp.StatusCode
+		if accept.ModifyResponse != nil {
+			return accept.ModifyResponse(resp)
+		}
+		return nil
+	}
+
+	// no need to log leader election requests
+	defer func() {
+		if klog.V(5).Enabled() {
+			klog.InfoS("PROXY",
+				"verb", r.Method,
+				"URI", r.RequestURI,
+				"latency", time.Since(startTime),
+				"userAgent", r.UserAgent(),
+				"resp", statusCode,
+			)
+		}
+	}()
 
 	p := h.newProxy(r)
 	p.ModifyResponse = modifyResponse

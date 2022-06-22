@@ -1,0 +1,7 @@
+apiVersion: fake.ctrlmesh.kruise.io/v1beta1
+kind: Foo
+metadata:
+  name: foo-sample
+  namespace: canary-ns
+spec:
+  # TODO(user): Add fields here

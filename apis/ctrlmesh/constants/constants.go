@@ -40,4 +40,7 @@ const (
 	EnvPodName            = "POD_NAME"
 	EnvPodNamespace       = "POD_NAMESPACE"
 	EnvPodIP              = "POD_IP"
+
+	VolumeName      = "ctrlmesh"
+	VolumeMountPath = "/ctrlmesh"
 )
