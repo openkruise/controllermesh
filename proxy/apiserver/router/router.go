@@ -30,12 +30,13 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/klog/v2"
 
-	"github.com/openkruise/controllermesh/apis/ctrlmesh/proto"
-	proxyclient "github.com/openkruise/controllermesh/proxy/client"
+	ctrlmeshproto "github.com/openkruise/controllermesh/apis/ctrlmesh/proto"
+	"github.com/openkruise/controllermesh/proxy/protomanager"
 	"github.com/openkruise/controllermesh/util"
 	utildiscovery "github.com/openkruise/controllermesh/util/discovery"
 	httputil "github.com/openkruise/controllermesh/util/http"
@@ -60,11 +61,11 @@ type Error struct {
 }
 
 type router struct {
-	proxyClient proxyclient.Client
+	specManager *protomanager.SpecManager
 }
 
-func New(c proxyclient.Client) Router {
-	return &router{proxyClient: c}
+func New(m *protomanager.SpecManager) Router {
+	return &router{specManager: m}
 }
 
 func (r *router) Route(httpReq *http.Request, reqInfo *request.RequestInfo) (*RouteAccept, *Error) {
@@ -72,17 +73,17 @@ func (r *router) Route(httpReq *http.Request, reqInfo *request.RequestInfo) (*Ro
 		return &RouteAccept{}, nil
 	}
 
-	snapshot := r.proxyClient.GetProtoSpecSnapshot()
-	protoSpec, _, err := snapshot.AcquireSpec()
-	if err != nil {
-		return nil, &Error{Code: http.StatusExpectationFailed, Msg: "route snapshot exceeded changed"}
-	}
-	defer snapshot.ReleaseSpec()
-	if protoSpec.RouteInternal.IsDefaultAndEmpty() {
+	gvr := schema.GroupVersionResource{Group: reqInfo.APIGroup, Version: reqInfo.APIVersion, Resource: reqInfo.Resource}
+	rr := &ctrlmeshproto.ResourceRequest{GR: gvr.GroupResource()}
+	protoSpec := r.specManager.AcquireSpec()
+	defer func() {
+		r.specManager.ReleaseSpec(rr)
+	}()
+
+	if protoSpec.IsDefaultAndEmpty() {
 		return &RouteAccept{}, nil
 	}
 
-	gvr := schema.GroupVersionResource{Group: reqInfo.APIGroup, Version: reqInfo.APIVersion, Resource: reqInfo.Resource}
 	apiResource, err := utildiscovery.DiscoverGVR(gvr)
 	if err != nil {
 		// let requests with non-existing resources go
@@ -94,15 +95,22 @@ func (r *router) Route(httpReq *http.Request, reqInfo *request.RequestInfo) (*Ro
 
 	switch reqInfo.Verb {
 	case "list", "watch":
+		objectSelector := protoSpec.GetObjectSelector(gvr.GroupResource())
+		if objectSelector != nil {
+			if err = injectSelector(httpReq, objectSelector); err != nil {
+				return nil, &Error{
+					Code: http.StatusInternalServerError,
+					Msg:  fmt.Sprintf("failed to inject selector %s into request: %v", util.DumpJSON(objectSelector), err),
+				}
+			}
+		}
+
 		conf := &config{
 			httpReq:       httpReq,
 			reqInfo:       reqInfo,
 			groupResource: gvr.GroupResource(),
 			apiResource:   apiResource,
-			snapshot:      snapshot,
-		}
-		if err = r.injectSelector(protoSpec.RouteInternal, httpReq, &gvr); err != nil {
-			return nil, &Error{Code: http.StatusInternalServerError, Msg: fmt.Sprintf("failed to inject lebal selector with gvr %v: %v", gvr, err)}
+			specManager:   r.specManager,
 		}
 		if reqInfo.Verb == "list" {
 			handler := &listHandler{config: *conf}
@@ -113,28 +121,14 @@ func (r *router) Route(httpReq *http.Request, reqInfo *request.RequestInfo) (*Ro
 	default:
 	}
 
-	if !protoSpec.RouteInternal.IsNamespaceMatch(reqInfo.Namespace, gvr.GroupResource()) {
+	if !protoSpec.IsNamespaceMatch(reqInfo.Namespace, gvr.GroupResource()) {
 		return nil, &Error{Code: http.StatusForbidden, Msg: "not match subset rules"}
 	}
 
 	return &RouteAccept{}, nil
 }
 
-func (r *router) injectSelector(route *proto.InternalRoute, httpReq *http.Request, gvr *schema.GroupVersionResource) error {
-	var subset *proto.InternalSubsetLimit
-	for _, sub := range route.SubsetLimits {
-		if sub.Subset == route.Subset {
-			subset = sub
-			break
-		}
-	}
-	if subset == nil {
-		return fmt.Errorf("can not find subset rule %s", route.Subset)
-	}
-	lbSelector := determineObjectSelector(route.GlobalLimits, gvr)
-	if lbSelector.Size() == 0 {
-		return nil
-	}
+func injectSelector(httpReq *http.Request, sel *metav1.LabelSelector) error {
 	raw, err := httputil.ParseRawQuery(httpReq.URL.RawQuery)
 	if err != nil {
 		return err
@@ -150,8 +144,7 @@ func (r *router) injectSelector(route *proto.InternalRoute, httpReq *http.Reques
 			return err
 		}
 	}
-	lbSelector = mergeSelector(oldLabelSelector, lbSelector)
-	selector, err := metav1.LabelSelectorAsSelector(lbSelector)
+	selector, err := util.ValidatedLabelSelectorAsSelector(util.MergeLabelSelector(oldLabelSelector, sel))
 	if err != nil {
 		return err
 	}
@@ -163,49 +156,12 @@ func (r *router) injectSelector(route *proto.InternalRoute, httpReq *http.Reques
 	return nil
 }
 
-func determineObjectSelector(rules []*proto.InternalMatchLimitRule, gvr *schema.GroupVersionResource) *metav1.LabelSelector {
-	for _, limiter := range rules {
-		if limiter.ObjectSelector == nil {
-			continue
-		}
-		if proto.IsGRMatchedAPIResources(gvr.GroupResource(), limiter.Resources) {
-			return limiter.ObjectSelector
-		}
-	}
-	return nil
-}
-
-func mergeSelector(selA *metav1.LabelSelector, selB *metav1.LabelSelector) *metav1.LabelSelector {
-	if selB == nil {
-		return selA.DeepCopy()
-	}
-	if selA == nil {
-		return selB.DeepCopy()
-	}
-	result := selA.DeepCopy()
-	if selB.MatchExpressions != nil {
-		if result.MatchExpressions == nil {
-			result.MatchExpressions = []metav1.LabelSelectorRequirement{}
-		}
-		result.MatchExpressions = append(result.MatchExpressions, selB.MatchExpressions...)
-	}
-	if selB.MatchLabels != nil {
-		if result.MatchLabels == nil {
-			result.MatchLabels = map[string]string{}
-		}
-		for key, val := range selB.MatchLabels {
-			result.MatchLabels[key] = val
-		}
-	}
-	return result
-}
-
 type config struct {
 	httpReq       *http.Request
 	reqInfo       *request.RequestInfo
 	groupResource schema.GroupResource
 	apiResource   *metav1.APIResource
-	snapshot      *proxyclient.ProtoSpecSnapshot
+	specManager   *protomanager.SpecManager
 }
 
 type listHandler struct {
@@ -250,16 +206,16 @@ func (h *listHandler) handle(resp *http.Response) error {
 }
 
 func (h *listHandler) filterItems(list runtime.Object) error {
-	protoSpec, _, err := h.snapshot.AcquireSpec()
-	if err != nil {
-		return err
+	rr := &ctrlmeshproto.ResourceRequest{
+		GR:              h.groupResource,
+		NamespacePassed: sets.NewString(),
+		NamespaceDenied: sets.NewString(),
 	}
-	var allowedNamespaces []string
-	var deniedNamespaces []string
+	protoSpec := h.specManager.AcquireSpec()
 	defer func() {
-		h.snapshot.RecordNamespace(allowedNamespaces, deniedNamespaces)
-		h.snapshot.ReleaseSpec()
+		h.specManager.ReleaseSpec(rr)
 	}()
+
 	if unstructuredObj, ok := list.(*unstructured.Unstructured); ok {
 		itemsField, ok := unstructuredObj.Object["items"]
 		if !ok {
@@ -277,15 +233,15 @@ func (h *listHandler) filterItems(list runtime.Object) error {
 			}
 			childObj := &unstructured.Unstructured{Object: child}
 			ns := childObj.GetNamespace()
-			if protoSpec.RouteInternal.IsNamespaceMatch(ns, h.groupResource) {
+			if protoSpec.IsNamespaceMatch(ns, h.groupResource) {
 				newItems = append(newItems, item)
 				if ns != "" {
-					allowedNamespaces = append(allowedNamespaces, ns)
+					rr.NamespacePassed.Insert(ns)
 				}
 			} else {
 				klog.V(5).Infof("Filter out list item %s/%s for %v", ns, childObj.GetName(), util.DumpJSON(h.reqInfo))
 				if ns != "" {
-					deniedNamespaces = append(deniedNamespaces, ns)
+					rr.NamespaceDenied.Insert(ns)
 				}
 			}
 		}
@@ -307,15 +263,15 @@ func (h *listHandler) filterItems(list runtime.Object) error {
 			continue
 		}
 		ns := meta.GetNamespace()
-		if protoSpec.RouteInternal.IsNamespaceMatch(ns, h.groupResource) {
+		if protoSpec.IsNamespaceMatch(ns, h.groupResource) {
 			newObjs = append(newObjs, o)
 			if ns != "" {
-				allowedNamespaces = append(allowedNamespaces, ns)
+				rr.NamespacePassed.Insert(ns)
 			}
 		} else {
 			klog.V(5).Infof("Filter out list item %s/%s for %v", ns, meta.GetName(), util.DumpJSON(h.reqInfo))
 			if ns != "" {
-				deniedNamespaces = append(deniedNamespaces, ns)
+				rr.NamespaceDenied.Insert(ns)
 			}
 		}
 	}
@@ -421,18 +377,20 @@ func (h *watchHandler) filterEvent(e *metav1.WatchEvent, obj runtime.Object) err
 	if err != nil {
 		return err
 	}
-	protoSpec, _, err := h.snapshot.AcquireSpec()
-	if err != nil {
-		return err
-	}
-	defer h.snapshot.ReleaseSpec()
+
+	rr := &ctrlmeshproto.ResourceRequest{GR: h.groupResource}
+	protoSpec := h.specManager.AcquireSpec()
+	defer func() {
+		h.specManager.ReleaseSpec(rr)
+	}()
+
 	ns := meta.GetNamespace()
-	if !protoSpec.RouteInternal.IsNamespaceMatch(ns, h.groupResource) {
+	if !protoSpec.IsNamespaceMatch(ns, h.groupResource) {
 		e.Type = string(watch.Bookmark)
 		klog.V(5).Infof("Filter out watch item %s/%s for %v", ns, meta.GetName(), util.DumpJSON(h.reqInfo))
-		h.snapshot.RecordNamespace(nil, []string{ns})
+		rr.NamespaceDenied = sets.NewString(ns)
 	} else {
-		h.snapshot.RecordNamespace([]string{ns}, nil)
+		rr.NamespacePassed = sets.NewString(ns)
 	}
 	return nil
 }

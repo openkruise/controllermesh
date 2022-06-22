@@ -79,8 +79,9 @@ func main() {
 	klog.InitFlags(nil)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
-	rand.Seed(time.Now().UnixNano())
 	ctrl.SetLogger(klogr.New())
+
+	rand.Seed(time.Now().UnixNano())
 
 	go func() {
 		if err := http.ListenAndServe(pprofAddr, nil); err != nil {

@@ -1,0 +1,17 @@
+domain: ctrlmesh.kruise.io
+layout:
+- go.kubebuilder.io/v3
+multigroup: true
+projectName: fakecontroller
+repo: github.com/openkruise/controllermesh/test/fakecontroller
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: ctrlmesh.kruise.io
+  group: fake
+  kind: Foo
+  path: github.com/openkruise/controllermesh/test/fakecontroller/apis/fake/v1beta1
+  version: v1beta1
+version: "3"

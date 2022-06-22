@@ -28,7 +28,6 @@ import (
 	"github.com/openkruise/controllermesh/util"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/klog/v2"
@@ -58,9 +57,9 @@ func (h *MutatingHandler) injectByVirtualApp(ctx context.Context, pod *v1.Pod) (
 	var matchedVApp *ctrlmeshv1alpha1.VirtualApp
 	for i := range virtualAppList.Items {
 		vApp := &virtualAppList.Items[i]
-		selector, err := metav1.LabelSelectorAsSelector(vApp.Spec.Selector)
+		selector, err := util.ValidatedLabelSelectorAsSelector(vApp.Spec.Selector)
 		if err != nil {
-			klog.Warningf("Failed to convert selector for VirtulApp %s/%s: %v", vApp.Namespace, vApp.Name, err)
+			klog.Warningf("Failed to convert selector for VirtualApp %s/%s: %v", vApp.Namespace, vApp.Name, err)
 			continue
 		}
 		if selector.Matches(labels.Set(pod.Labels)) {
@@ -107,6 +106,9 @@ func (h *MutatingHandler) injectByVirtualApp(ctx context.Context, pod *v1.Pod) (
 			Privileged:   utilpointer.BoolPtr(true),
 			Capabilities: &v1.Capabilities{Add: []v1.Capability{"NET_ADMIN"}},
 		},
+		VolumeMounts: []v1.VolumeMount{
+			{Name: constants.VolumeName, MountPath: constants.VolumeMountPath},
+		},
 	}
 	proxyContainer = &v1.Container{
 		Name:            constants.ProxyContainerName,
@@ -143,6 +145,9 @@ func (h *MutatingHandler) injectByVirtualApp(ctx context.Context, pod *v1.Pod) (
 			Privileged:             utilpointer.BoolPtr(true), // This can be false, but true help us debug more easier.
 			ReadOnlyRootFilesystem: utilpointer.BoolPtr(true),
 			RunAsUser:              utilpointer.Int64Ptr(int64(constants.ProxyUserID)),
+		},
+		VolumeMounts: []v1.VolumeMount{
+			{Name: constants.VolumeName, MountPath: constants.VolumeMountPath},
 		},
 	}
 
@@ -188,6 +193,7 @@ func (h *MutatingHandler) injectByVirtualApp(ctx context.Context, pod *v1.Pod) (
 
 	pod.Spec.InitContainers = append([]v1.Container{*initContainer}, pod.Spec.InitContainers...)
 	pod.Spec.Containers = append([]v1.Container{*proxyContainer}, pod.Spec.Containers...)
+	pod.Spec.Volumes = append(pod.Spec.Volumes, v1.Volume{Name: constants.VolumeName, VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}})
 	if pod.Labels == nil {
 		pod.Labels = map[string]string{}
 	}

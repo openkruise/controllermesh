@@ -22,6 +22,7 @@ import (
 	"io"
 	"sync"
 
+	"github.com/gogo/protobuf/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
@@ -38,28 +39,17 @@ import (
 	"github.com/openkruise/controllermesh/util"
 )
 
+// TODO: proxy container should exit after controller container
+// if we need a new gRPC method to trigger proxy exit when controller exited?
+
 var (
 	grpcServer = &GrpcServer{}
 
 	grpcRecvTriggerChannel = make(chan event.GenericEvent, 1024)
 
-	// cachedGrpcSrvConnection type is map[types.NamespacedName]*grpcSrvConnection
+	// cachedGrpcSrvConnection type is map[types.UID]*grpcSrvConnection
 	cachedGrpcSrvConnection = &sync.Map{}
-
-	// expectationsSrvHash type is map[types.NamespacedName]string
-	expectationsSrvHash = &sync.Map{}
 )
-
-type grpcSrvConnection struct {
-	srv      ctrlmeshproto.ControllerMesh_RegisterV1Server
-	stopChan chan struct{}
-	status   grpcSrvStatus
-	mu       sync.Mutex
-}
-
-type grpcSrvStatus struct {
-	currentSpec *ctrlmeshproto.ProxySpecV1
-}
 
 func init() {
 	_ = grpcregistry.Register("ctrlmesh-server", true, func(opts grpcregistry.RegisterOptions) {
@@ -67,6 +57,22 @@ func init() {
 		grpcServer.ctx = opts.Ctx
 		ctrlmeshproto.RegisterControllerMeshServer(opts.GrpcServer, grpcServer)
 	})
+}
+
+type grpcSrvConnection struct {
+	mu     sync.Mutex
+	srv    ctrlmeshproto.ControllerMesh_RegisterV1Server
+	status *ctrlmeshproto.ProxyStatusV1
+
+	sendTimes    int
+	disconnected bool
+}
+
+func (conn *grpcSrvConnection) send(spec *ctrlmeshproto.ProxySpecV1) error {
+	conn.mu.Lock()
+	conn.sendTimes++
+	conn.mu.Unlock()
+	return conn.srv.Send(spec)
 }
 
 type GrpcServer struct {
@@ -102,12 +108,15 @@ func (s *GrpcServer) RegisterV1(srv ctrlmeshproto.ControllerMesh_RegisterV1Serve
 		return status.Errorf(codes.InvalidArgument, fmt.Sprintf("empty %s label in pod %s", ctrlmeshv1alpha1.VirtualAppInjectedKey, podNamespacedName))
 	}
 
-	klog.V(3).Infof("Start proxy connection from Pod %s in VApp %s", podNamespacedName, vAppName)
+	if pStatus.MetaState == nil {
+		klog.Infof("Start first-time connection from Pod %s in VApp %s", podNamespacedName, vAppName)
+	} else {
+		klog.Infof("Start re-connection from Pod %s in VApp %s", podNamespacedName, vAppName)
+	}
 
-	stopChan := make(chan struct{})
-	conn := &grpcSrvConnection{srv: srv, stopChan: stopChan, status: grpcSrvStatus{currentSpec: pStatus.GetCurrentSpec()}}
-	cachedGrpcSrvConnection.Store(podNamespacedName, conn)
-	expectationsSrvHash.Delete(podNamespacedName)
+	conn := &grpcSrvConnection{srv: srv, status: pStatus}
+	cachedGrpcSrvConnection.Store(pod.UID, conn)
+	podHashExpectation.Delete(pod.UID)
 
 	genericEvent := event.GenericEvent{Object: &metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Namespace: podNamespacedName.Namespace, Name: vAppName}}}
 	grpcRecvTriggerChannel <- genericEvent
@@ -127,41 +136,29 @@ func (s *GrpcServer) RegisterV1(srv ctrlmeshproto.ControllerMesh_RegisterV1Serve
 			}
 			klog.Infof("Get proto status from Pod %s in VApp %s: %v", podNamespacedName, vAppName, util.DumpJSON(pStatus))
 
-			if pStatus.GetCurrentSpec() != nil {
-				var trigger bool
-				conn.mu.Lock()
-				if !util.IsJSONObjectEqual(conn.status.currentSpec, pStatus.GetCurrentSpec()) {
-					trigger = true
-				}
-				// overwrite the whole status to avoid race condition
-				conn.status = grpcSrvStatus{currentSpec: pStatus.GetCurrentSpec()}
-				conn.mu.Unlock()
-				if v, ok := expectationsSrvHash.Load(podNamespacedName); ok {
-					expectHash := v.(string)
-					var currentHash string
-					if pStatus.GetCurrentSpec().GetMeta() != nil {
-						currentHash = pStatus.GetCurrentSpec().GetMeta().GetHash()
-					}
-					if currentHash == expectHash {
-						expectationsSrvHash.Delete(podNamespacedName)
-					} else {
-						klog.Warningf("Find unsatisfied hash %s (expected %s) in proto status from Pod %s in VApp %s", currentHash, expectHash, podNamespacedName, vAppName)
-					}
-				}
-				if trigger {
-					grpcRecvTriggerChannel <- genericEvent
-				}
+			conn.mu.Lock()
+			statusChanged := !proto.Equal(conn.status, pStatus)
+			// overwrite the whole status to avoid race condition
+			conn.status = pStatus
+			conn.mu.Unlock()
+
+			if statusChanged {
+				grpcRecvTriggerChannel <- genericEvent
 			}
 		}
 	}()
 
 	select {
 	case <-s.ctx.Done():
-	case <-stopChan:
+		return nil
 	case <-srv.Context().Done():
 	}
-	cachedGrpcSrvConnection.Delete(podNamespacedName)
+	klog.Infof("Stop connection from Pod %s in VApp %s", podNamespacedName, vAppName)
+	podHashExpectation.Delete(pod.UID)
+	// Can NOT delete this conn in cachedGrpcSrvConnection
+	conn.mu.Lock()
+	conn.disconnected = true
+	conn.mu.Unlock()
 	grpcRecvTriggerChannel <- genericEvent
-	klog.V(3).Infof("Finish proxy connection from Pod %s in VApp %s", podNamespacedName, vAppName)
 	return nil
 }

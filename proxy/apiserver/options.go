@@ -28,7 +28,7 @@ import (
 	"k8s.io/apiserver/pkg/server/options"
 	"k8s.io/client-go/rest"
 
-	proxyclient "github.com/openkruise/controllermesh/proxy/client"
+	"github.com/openkruise/controllermesh/proxy/protomanager"
 )
 
 const (
@@ -50,7 +50,7 @@ type Options struct {
 	HandlerChainWaitGroup  *utilwaitgroup.SafeWaitGroup
 
 	LeaderElectionName string
-	ProxyClient        proxyclient.Client
+	SpecManager        *protomanager.SpecManager
 }
 
 func NewOptions() *Options {

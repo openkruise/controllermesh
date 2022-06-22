@@ -56,10 +56,6 @@ func (h *podEventHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingIn
 	oldPod := e.ObjectOld.(*v1.Pod)
 	newPod := e.ObjectNew.(*v1.Pod)
 
-	if newPod.DeletionTimestamp != nil {
-		return
-	}
-
 	vApp, err := h.getVAppForPod(newPod)
 	if err != nil {
 		klog.Warningf("Failed to get VApp for Pod %s/%s update: %v", newPod.Namespace, newPod.Name, err)
@@ -68,10 +64,20 @@ func (h *podEventHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingIn
 		return
 	}
 
+	if newPod.DeletionTimestamp != nil {
+		if oldPod.DeletionTimestamp == nil || len(getRunningContainers(oldPod)) != len(getRunningContainers(newPod)) {
+			q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: vApp.Namespace,
+				Name:      vApp.Name,
+			}})
+		}
+		return
+	}
+
 	// if the subset of pod changed, enqueue it
 	oldSubset := determinePodSubset(vApp, oldPod)
 	newSubset := determinePodSubset(vApp, newPod)
-	if oldSubset != newSubset || util.IsPodReady(oldPod) != util.IsPodReady(newPod) {
+	if oldSubset != newSubset || oldPod.Status.Phase != newPod.Status.Phase || util.IsPodReady(oldPod) != util.IsPodReady(newPod) {
 		q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
 			Namespace: vApp.Namespace,
 			Name:      vApp.Name,
@@ -80,6 +86,20 @@ func (h *podEventHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingIn
 }
 
 func (h *podEventHandler) Delete(e event.DeleteEvent, q workqueue.RateLimitingInterface) {
+	pod := e.Object.(*v1.Pod)
+	vApp, err := h.getVAppForPod(pod)
+	if err != nil {
+		klog.Warningf("Failed to get VApp for Pod %s/%s delete: %v", pod.Namespace, pod.Name, err)
+		return
+	} else if vApp == nil {
+		return
+	}
+	podHashExpectation.Delete(pod.UID)
+	podDeletionExpectation.Delete(pod.UID)
+	q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
+		Namespace: vApp.Namespace,
+		Name:      vApp.Name,
+	}})
 }
 
 func (h *podEventHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {

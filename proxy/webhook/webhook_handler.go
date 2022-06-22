@@ -40,7 +40,7 @@ import (
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	proxyclient "github.com/openkruise/controllermesh/proxy/client"
+	"github.com/openkruise/controllermesh/proxy/protomanager"
 	webhookrouter "github.com/openkruise/controllermesh/proxy/webhook/router"
 	"github.com/openkruise/controllermesh/util"
 	"github.com/openkruise/controllermesh/util/certwatcher"
@@ -71,7 +71,7 @@ type Options struct {
 	CertDir     string
 	BindPort    int
 	WebhookPort int
-	ProxyClient proxyclient.Client
+	SpecManager *protomanager.SpecManager
 }
 
 type Proxy struct {
@@ -141,7 +141,7 @@ func (p *Proxy) Start(ctx context.Context) (<-chan struct{}, error) {
 		_ = cache.getTripper("127.0.0.1")
 		srv := &http.Server{
 			Handler: &handler{
-				router: webhookrouter.New(p.opts.ProxyClient),
+				router: webhookrouter.New(p.opts.SpecManager),
 				cache:  cache,
 			},
 		}

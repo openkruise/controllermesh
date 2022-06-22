@@ -23,6 +23,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+
+	"github.com/openkruise/controllermesh/util"
 )
 
 const (
@@ -30,27 +32,26 @@ const (
 	ResourceAll     = "*"
 )
 
-func GetLimitsForSubset(subset string, subsetLimits []*SubsetLimitV1) []*MatchLimitRuleV1 {
-	for _, subsetLimit := range subsetLimits {
-		if subsetLimit.Subset == subset {
-			return subsetLimit.Limits
-		}
-	}
-	return nil
+type ResourceRequest struct {
+	GR schema.GroupResource
+
+	ObjectSelector  *metav1.LabelSelector
+	NamespacePassed sets.String
+	NamespaceDenied sets.String
 }
 
 func ConvertProtoSpecToInternal(protoSpec *ProxySpecV1) *InternalSpec {
 	is := &InternalSpec{ProxySpecV1: protoSpec}
 	if r := protoSpec.Route; r != nil {
-		is.RouteInternal = &InternalRoute{
-			Subset:                r.Subset,
-			GlobalLimits:          convertProtoMatchLimitRuleToInternal(r.GlobalLimits),
-			SubsetPublicResources: r.SubsetPublicResources,
+		is.routeInternal = &internalRoute{
+			subset:                r.Subset,
+			globalLimits:          convertProtoMatchLimitRuleToInternal(r.GlobalLimits),
+			subsetPublicResources: r.SubsetPublicResources,
 		}
 		for _, subsetLimit := range r.SubsetLimits {
-			is.RouteInternal.SubsetLimits = append(is.RouteInternal.SubsetLimits, &InternalSubsetLimit{
-				Subset: subsetLimit.Subset,
-				Limits: convertProtoMatchLimitRuleToInternal(subsetLimit.Limits),
+			is.routeInternal.subsetLimits = append(is.routeInternal.subsetLimits, &internalSubsetLimit{
+				subset: subsetLimit.Subset,
+				limits: convertProtoMatchLimitRuleToInternal(subsetLimit.Limits),
 			})
 		}
 	}
@@ -58,8 +59,8 @@ func ConvertProtoSpecToInternal(protoSpec *ProxySpecV1) *InternalSpec {
 	return is
 }
 
-func convertProtoMatchLimitRuleToInternal(limits []*MatchLimitRuleV1) []*InternalMatchLimitRule {
-	var internalLimits []*InternalMatchLimitRule
+func convertProtoMatchLimitRuleToInternal(limits []*MatchLimitRuleV1) []*internalMatchLimitRule {
+	var internalLimits []*internalMatchLimitRule
 	for _, limit := range limits {
 
 		if len(limit.ObjectSelector) > 0 {
@@ -67,14 +68,14 @@ func convertProtoMatchLimitRuleToInternal(limits []*MatchLimitRuleV1) []*Interna
 			if err := json.Unmarshal([]byte(limit.ObjectSelector), selector); err != nil {
 				klog.Errorf("fail to unmarshal ObjectSelector %s", limit.ObjectSelector)
 			}
-			internalLimits = append(internalLimits, &InternalMatchLimitRule{
-				Resources:      limit.Resources,
-				ObjectSelector: selector,
+			internalLimits = append(internalLimits, &internalMatchLimitRule{
+				resources:      limit.Resources,
+				objectSelector: selector,
 			})
 		} else {
-			internalLimits = append(internalLimits, &InternalMatchLimitRule{
-				Namespaces: sets.NewString(limit.Namespaces...),
-				Resources:  limit.Resources,
+			internalLimits = append(internalLimits, &internalMatchLimitRule{
+				namespaces: sets.NewString(limit.Namespaces...),
+				resources:  limit.Resources,
 			})
 		}
 	}
@@ -83,61 +84,91 @@ func convertProtoMatchLimitRuleToInternal(limits []*MatchLimitRuleV1) []*Interna
 
 type InternalSpec struct {
 	*ProxySpecV1
-	RouteInternal *InternalRoute
+	routeInternal *internalRoute
 }
 
-type InternalRoute struct {
-	Subset                string
-	GlobalLimits          []*InternalMatchLimitRule
-	SubsetLimits          []*InternalSubsetLimit
-	SubsetPublicResources []*APIGroupResourceV1
+func (is *InternalSpec) IsDefaultAndEmpty() bool {
+	return is.routeInternal.subset == "" &&
+		len(is.routeInternal.globalLimits) == 0 &&
+		len(is.routeInternal.subsetLimits) <= 1
 }
 
-type InternalSubsetLimit struct {
-	Subset string
-	Limits []*InternalMatchLimitRule
-}
-
-type InternalMatchLimitRule struct {
-	Namespaces     sets.String
-	ObjectSelector *metav1.LabelSelector
-	Resources      []*APIGroupResourceV1
-}
-
-func (ir *InternalRoute) IsDefaultAndEmpty() bool {
-	return ir.Subset == "" && len(ir.GlobalLimits) == 0 && len(ir.SubsetLimits) == 0
-}
-
-func (ir *InternalRoute) IsNamespaceMatch(ns string, gr schema.GroupResource) bool {
-	subset, ok := ir.DetermineNamespaceSubset(ns, gr)
+func (is *InternalSpec) IsNamespaceMatch(ns string, gr schema.GroupResource) bool {
+	subset, ok := is.routeInternal.determineNamespaceSubset(ns, gr)
 	if !ok {
 		return false
 	}
-	return subset == AllSubsetPublic || subset == ir.Subset
+	return subset == AllSubsetPublic || subset == is.routeInternal.subset
 }
 
-func (ir *InternalRoute) DetermineNamespaceSubset(ns string, gr schema.GroupResource) (string, bool) {
-	for _, limit := range ir.GlobalLimits {
-		if len(limit.Resources) > 0 && !IsGRMatchedAPIResources(gr, limit.Resources) {
+func (is *InternalSpec) GetObjectSelector(gr schema.GroupResource) (sel *metav1.LabelSelector) {
+	return is.routeInternal.getObjectSelector(gr)
+}
+
+func (is *InternalSpec) GetMatchedSubsetEndpoint(ns string, gr schema.GroupResource) (ignore bool, self bool, hosts []string) {
+	subset, ok := is.routeInternal.determineNamespaceSubset(ns, gr)
+	if !ok {
+		return true, false, nil
+	}
+	if subset == AllSubsetPublic || subset == is.routeInternal.subset {
+		return false, true, nil
+	}
+
+	// TODO: how to route webhook request by object selector?
+
+	for _, e := range is.Endpoints {
+		if e.Subset == subset {
+			hosts = append(hosts, e.Ip)
+		}
+	}
+	return false, false, hosts
+}
+
+type internalRoute struct {
+	subset                string
+	globalLimits          []*internalMatchLimitRule
+	subsetLimits          []*internalSubsetLimit
+	subsetPublicResources []*APIGroupResourceV1
+}
+
+type internalSubsetLimit struct {
+	subset string
+	limits []*internalMatchLimitRule
+}
+
+type internalMatchLimitRule struct {
+	namespaces     sets.String
+	objectSelector *metav1.LabelSelector
+	resources      []*APIGroupResourceV1
+}
+
+func (ir *internalRoute) determineNamespaceSubset(ns string, gr schema.GroupResource) (string, bool) {
+	// Resources of ClusterScope can only be handled by default subset
+	if ns == "" {
+		return "", true
+	}
+
+	for _, limit := range ir.globalLimits {
+		if len(limit.resources) > 0 && !isGRMatchedAPIResources(gr, limit.resources) {
 			continue
-		} else if limit.ObjectSelector != nil {
+		} else if limit.objectSelector != nil {
 			continue
 		}
 
-		if !limit.Namespaces.Has(ns) {
+		if !limit.namespaces.Has(ns) {
 			return "", false
 		}
 	}
 
-	isResourceMatchPublic := IsGRMatchedAPIResources(gr, ir.SubsetPublicResources)
+	isResourceMatchPublic := isGRMatchedAPIResources(gr, ir.subsetPublicResources)
 	var isResourceMatchLimit bool
-	for _, subsetLimits := range ir.SubsetLimits {
-		for _, limit := range subsetLimits.Limits {
-			if limit.ObjectSelector != nil {
+	for _, subsetLimits := range ir.subsetLimits {
+		for _, limit := range subsetLimits.limits {
+			if limit.objectSelector != nil {
 				continue
 			}
-			if len(limit.Resources) > 0 {
-				if !IsGRMatchedAPIResources(gr, limit.Resources) {
+			if len(limit.resources) > 0 {
+				if !isGRMatchedAPIResources(gr, limit.resources) {
 					continue
 				}
 				isResourceMatchLimit = true
@@ -145,8 +176,8 @@ func (ir *InternalRoute) DetermineNamespaceSubset(ns string, gr schema.GroupReso
 				continue
 			}
 
-			if limit.Namespaces.Has(ns) {
-				return subsetLimits.Subset, true
+			if limit.namespaces.Has(ns) {
+				return subsetLimits.subset, true
 			}
 		}
 	}
@@ -154,10 +185,47 @@ func (ir *InternalRoute) DetermineNamespaceSubset(ns string, gr schema.GroupReso
 		return AllSubsetPublic, true
 	}
 
-	return "", true
+	// No subset matched, should ignore it instead of using default subset
+	return "", false
 }
 
-func IsGRMatchedAPIResources(gr schema.GroupResource, resources []*APIGroupResourceV1) bool {
+func (ir *internalRoute) getObjectSelector(gr schema.GroupResource) (sel *metav1.LabelSelector) {
+	for _, limit := range ir.globalLimits {
+		if limit.objectSelector == nil {
+			continue
+		}
+
+		if len(limit.resources) > 0 && !isGRMatchedAPIResources(gr, limit.resources) {
+			continue
+		}
+		sel = util.MergeLabelSelector(sel, limit.objectSelector)
+	}
+
+	for _, subsetLimits := range ir.subsetLimits {
+		var isSelfSubset bool
+
+		for _, limit := range subsetLimits.limits {
+			if limit.objectSelector == nil {
+				continue
+			}
+			if len(limit.resources) > 0 && !isGRMatchedAPIResources(gr, limit.resources) {
+				continue
+			}
+			if !isSelfSubset {
+				sel = util.MergeLabelSelector(sel, util.NegateLabelSelector(limit.objectSelector))
+			} else {
+				sel = util.MergeLabelSelector(sel, limit.objectSelector)
+			}
+		}
+
+		if isSelfSubset {
+			break
+		}
+	}
+	return
+}
+
+func isGRMatchedAPIResources(gr schema.GroupResource, resources []*APIGroupResourceV1) bool {
 	for _, r := range resources {
 		if containsString(gr.Group, r.ApiGroups, ResourceAll) && containsString(gr.Resource, r.Resources, ResourceAll) {
 			return true

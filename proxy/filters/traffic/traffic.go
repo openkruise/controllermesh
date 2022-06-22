@@ -39,7 +39,7 @@ import (
 	"github.com/openkruise/controllermesh/client"
 	ctrlmeshv1alphainformers "github.com/openkruise/controllermesh/client/informers/externalversions/ctrlmesh/v1alpha1"
 	ctrlmeshv1alpha1listers "github.com/openkruise/controllermesh/client/listers/ctrlmesh/v1alpha1"
-	proxyclient "github.com/openkruise/controllermesh/proxy/client"
+	"github.com/openkruise/controllermesh/proxy/protomanager"
 	"github.com/openkruise/controllermesh/util"
 )
 
@@ -50,7 +50,7 @@ var (
 	defaultCacheExpiration = time.Second * 3
 )
 
-func WithTrafficControl(handler http.Handler, proxyClient proxyclient.Client) http.Handler {
+func WithTrafficControl(handler http.Handler, specManager *protomanager.SpecManager) http.Handler {
 	ctx := context.Background()
 	clientset := client.GetGenericClient().CtrlmeshClient
 	namespace := os.Getenv(constants.EnvPodNamespace)
@@ -62,31 +62,30 @@ func WithTrafficControl(handler http.Handler, proxyClient proxyclient.Client) ht
 		klog.Fatalf("Error waiting TrafficPolicy informer synced")
 	}
 
+	protoSpec := specManager.AcquireSpec()
+	defer specManager.ReleaseSpec(nil)
+
 	return &trafficControlHandler{
-		handler:     handler,
-		lister:      ctrlmeshv1alpha1listers.NewTrafficPolicyLister(informer.GetIndexer()).TrafficPolicies(namespace),
-		proxyClient: proxyClient,
+		handler:  handler,
+		lister:   ctrlmeshv1alpha1listers.NewTrafficPolicyLister(informer.GetIndexer()).TrafficPolicies(namespace),
+		vAppName: protoSpec.Meta.VAppName,
+		subset:   protoSpec.Route.Subset,
 	}
 }
 
 type trafficControlHandler struct {
 	handler      http.Handler
 	lister       ctrlmeshv1alpha1listers.TrafficPolicyNamespaceLister
-	proxyClient  proxyclient.Client
 	rateControls sync.Map
+
+	vAppName string
+	subset   string
 }
 
 func (h *trafficControlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	snapshot := h.proxyClient.GetProtoSpecSnapshot()
-	protoSpec, _, err := snapshot.AcquireSpec()
+	policies, err := h.getTrafficPolicies(h.vAppName, h.subset)
 	if err != nil {
-		h.handler.ServeHTTP(w, r)
-		return
-	}
-	snapshot.ReleaseSpec()
-	policies, err := h.getTrafficPolicies(protoSpec.Meta.VAppName, protoSpec.RouteInternal.Subset)
-	if err != nil {
-		klog.Errorf("Failed to get trafficpolicies from lister: %v", err)
+		klog.Errorf("Failed to get TrafficPolicy from lister: %v", err)
 		h.handler.ServeHTTP(w, r)
 		return
 	}

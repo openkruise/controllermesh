@@ -44,11 +44,6 @@ func (r *ioReader) readOnce() ([]byte, error) {
 	case http2.StreamError:
 		// This is trying to catch the scenario that the server may close the connection when sending the
 		// response body. This can be caused by server timeout due to a slow network connection.
-		// TODO: Add test for this. Steps may be:
-		// 1. client-go (or kubectl) sends a GET request.
-		// 2. Apiserver sends back the headers and then part of the body
-		// 3. Apiserver closes connection.
-		// 4. client-go should catch this and return an error.
 		klog.V(2).Infof("Stream error %#v when reading response body, may be caused by closed connection.", err)
 		return nil, fmt.Errorf("stream error when reading response body, may be caused by closed connection. Please retry. Original error: %v", err)
 	default:

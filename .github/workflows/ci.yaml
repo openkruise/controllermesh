@@ -10,7 +10,7 @@ on:
 
 env:
   # Common versions
-  GO_VERSION: '1.16'
+  GO_VERSION: '1.18'
   GOLANGCI_VERSION: 'v1.42'
 
 jobs:
@@ -36,4 +36,5 @@ jobs:
           make build test
       - name: Check diff
         run: |
+          git status
           [[ -z $(git status -s) ]] || (git status; printf "Existing modified/untracked files.\nPlease run \"make generate manifests\" and push again.\n"; exit 1)

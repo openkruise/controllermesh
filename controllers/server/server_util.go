@@ -21,7 +21,6 @@ import (
 	"sort"
 
 	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
 
@@ -29,6 +28,16 @@ import (
 	ctrlmeshv1alpha1 "github.com/openkruise/controllermesh/apis/ctrlmesh/v1alpha1"
 	"github.com/openkruise/controllermesh/util"
 )
+
+func getRunningContainers(pod *v1.Pod) []string {
+	var runningContainers []string
+	for _, cStatus := range pod.Status.ContainerStatuses {
+		if cStatus.State.Running != nil {
+			runningContainers = append(runningContainers, cStatus.Name)
+		}
+	}
+	return runningContainers
+}
 
 func determinePodSubset(vApp *ctrlmeshv1alpha1.VirtualApp, pod *v1.Pod) string {
 	for i := range vApp.Spec.Subsets {
@@ -98,8 +107,9 @@ func generateMatchLimitRules(limits []ctrlmeshv1alpha1.MatchLimitSelector, names
 		resources := generateAPIResources(ms.Resources)
 		switch {
 		case ms.NamespaceSelector != nil, ms.NamespaceRegex != nil:
-			var matchedNamespaces []string
-			var unmatchedNamespaces []string
+			// matchedNamespaces and unmatchedNamespaces should not be nil
+			matchedNamespaces := make([]string, 0)
+			unmatchedNamespaces := make([]string, 0)
 			for _, ns := range namespaces {
 				if isNamespaceMatched(ms, ns) {
 					matchedNamespaces = append(matchedNamespaces, ns.Name)
@@ -111,6 +121,7 @@ func generateMatchLimitRules(limits []ctrlmeshv1alpha1.MatchLimitSelector, names
 			excludeRules = append(excludeRules, &ctrlmeshproto.MatchLimitRuleV1{Namespaces: unmatchedNamespaces, Resources: resources})
 		case ms.ObjectSelector != nil:
 			includeRules = append(includeRules, &ctrlmeshproto.MatchLimitRuleV1{Resources: resources, ObjectSelector: util.DumpJSON(ms.ObjectSelector)})
+			//excludeRules = append(excludeRules, &ctrlmeshproto.MatchLimitRuleV1{Resources: resources, ObjectSelector: util.DumpJSON(negateLabelSelector(ms.ObjectSelector))})
 		}
 	}
 	return
@@ -145,7 +156,7 @@ func generateProtoEndpoints(vApp *ctrlmeshv1alpha1.VirtualApp, pods []*v1.Pod) [
 
 func isNamespaceMatched(ms ctrlmeshv1alpha1.MatchLimitSelector, ns *v1.Namespace) bool {
 	if ms.NamespaceSelector != nil {
-		selector, err := metav1.LabelSelectorAsSelector(ms.NamespaceSelector)
+		selector, err := util.ValidatedLabelSelectorAsSelector(ms.NamespaceSelector)
 		if err != nil {
 			klog.Warningf("Invalid namespace selector %v: %v", util.DumpJSON(ms.NamespaceSelector), err)
 			return false
@@ -164,8 +175,7 @@ func isNamespaceMatched(ms ctrlmeshv1alpha1.MatchLimitSelector, ns *v1.Namespace
 
 func calculateSpecHash(spec *ctrlmeshproto.ProxySpecV1) string {
 	return util.GetMD5Hash(util.DumpJSON(ctrlmeshproto.ProxySpecV1{
-		Route:              spec.Route,
-		Endpoints:          spec.Endpoints,
-		ControlInstruction: spec.ControlInstruction,
+		Route:     spec.Route,
+		Endpoints: spec.Endpoints,
 	}))
 }
