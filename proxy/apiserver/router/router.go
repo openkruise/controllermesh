@@ -239,7 +239,6 @@ func (h *listHandler) filterItems(list runtime.Object) error {
 					rr.NamespacePassed.Insert(ns)
 				}
 			} else {
-				klog.V(5).Infof("Filter out list item %s/%s for %v", ns, childObj.GetName(), util.DumpJSON(h.reqInfo))
 				if ns != "" {
 					rr.NamespaceDenied.Insert(ns)
 				}
@@ -269,7 +268,6 @@ func (h *listHandler) filterItems(list runtime.Object) error {
 				rr.NamespacePassed.Insert(ns)
 			}
 		} else {
-			klog.V(5).Infof("Filter out list item %s/%s for %v", ns, meta.GetName(), util.DumpJSON(h.reqInfo))
 			if ns != "" {
 				rr.NamespaceDenied.Insert(ns)
 			}
@@ -387,7 +385,6 @@ func (h *watchHandler) filterEvent(e *metav1.WatchEvent, obj runtime.Object) err
 	ns := meta.GetNamespace()
 	if !protoSpec.IsNamespaceMatch(ns, h.groupResource) {
 		e.Type = string(watch.Bookmark)
-		klog.V(5).Infof("Filter out watch item %s/%s for %v", ns, meta.GetName(), util.DumpJSON(h.reqInfo))
 		rr.NamespaceDenied = sets.NewString(ns)
 	} else {
 		rr.NamespacePassed = sets.NewString(ns)

@@ -42,7 +42,7 @@ var (
 	proxyImagePullPolicy = flag.String("proxy-image-pull-policy", "Always", "Image pull policy for ControllerMesh proxy container, can be Always or IfNotPresent.")
 	proxyResourceCPU     = flag.String("proxy-cpu", "100m", "The CPU limit for ControllerMesh proxy container.")
 	proxyResourceMemory  = flag.String("proxy-memory", "200Mi", "The Memory limit for ControllerMesh proxy container.")
-	proxyLogLevel        = flag.Uint("proxy-logv", 4, "The log level of ControllerMesh proxy container.")
+	proxyLogLevel        = flag.Uint("proxy-logv", 3, "The log level of ControllerMesh proxy container.")
 	proxyExtraEnvs       = flag.String("proxy-extra-envs", "", "Extra environments for ControllerMesh proxy container.")
 )
 
