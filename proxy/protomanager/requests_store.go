@@ -40,21 +40,35 @@ func newRequestsStore(s *storage) *requestsStore {
 }
 
 func (rs *requestsStore) add(req *ctrlmeshproto.ResourceRequest) {
+	var changed bool
 	r := rs.requestsByGR[req.GR.String()]
 	if r == nil {
+		klog.Infof("GroupVersion %s initial record: %v", req.GR.String(), util.DumpJSON(req))
 		rs.requestsByGR[req.GR.String()] = req
+		changed = true
 	} else {
 		if !reflect.DeepEqual(r.ObjectSelector, req.ObjectSelector) {
-			klog.Warningf("Find new resource request %s has different object selector with the old %v",
-				util.DumpJSON(req), util.DumpJSON(req.ObjectSelector))
+			klog.Warningf("Find %s has new object selector %s different with the old %v",
+				req.GR.String(), util.DumpJSON(req.ObjectSelector), util.DumpJSON(r.ObjectSelector))
 			r.ObjectSelector = req.ObjectSelector
+			changed = true
 		}
-		r.NamespacePassed = r.NamespacePassed.Union(req.NamespacePassed)
-		r.NamespaceDenied = r.NamespaceDenied.Union(req.NamespaceDenied)
+		if diff := req.NamespacePassed.Difference(r.NamespacePassed); diff.Len() > 0 {
+			klog.Infof("GroupVersion %s has additional namespaces passed: %v", req.GR.String(), diff.List())
+			r.NamespacePassed.Insert(diff.UnsortedList()...)
+			changed = true
+		}
+		if diff := req.NamespaceDenied.Difference(r.NamespaceDenied); diff.Len() > 0 {
+			klog.Infof("GroupVersion %s has additional namespaces denied: %v", req.GR.String(), diff.List())
+			r.NamespaceDenied.Insert(diff.UnsortedList()...)
+			changed = true
+		}
 	}
 
-	if err := rs.storage.writeHistoryRequests(rs); err != nil {
-		panic(fmt.Errorf("failed to write history requests for %v: %v", util.DumpJSON(req), err))
+	if changed {
+		if err := rs.storage.writeHistoryRequests(rs); err != nil {
+			panic(fmt.Errorf("failed to write history requests for %v: %v", util.DumpJSON(req), err))
+		}
 	}
 }
 

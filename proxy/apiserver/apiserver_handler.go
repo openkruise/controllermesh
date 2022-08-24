@@ -147,7 +147,7 @@ func (h *handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	// no need to log leader election requests
 	defer func() {
-		if klog.V(5).Enabled() {
+		if klog.V(4).Enabled() {
 			klog.InfoS("PROXY",
 				"verb", r.Method,
 				"URI", r.RequestURI,

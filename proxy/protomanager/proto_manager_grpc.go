@@ -43,6 +43,8 @@ type grpcClient struct {
 
 	reportTriggerChan chan struct{}
 	specManager       *SpecManager
+
+	prevSpec *ctrlmeshproto.ProxySpecV1
 }
 
 func NewGrpcClient() Client {
@@ -79,7 +81,7 @@ func (c *grpcClient) connect(ctx context.Context, initChan chan struct{}) {
 		if i > 0 {
 			time.Sleep(time.Second * 3)
 		}
-		klog.V(4).Infof("Starting grpc connecting...")
+		klog.Infof("Starting grpc connecting...")
 
 		managerState, err := c.lister.Get(ctrlmeshv1alpha1.NameOfManager)
 		if err != nil {
@@ -110,7 +112,7 @@ func (c *grpcClient) connect(ctx context.Context, initChan chan struct{}) {
 		}
 
 		addr := fmt.Sprintf("%s:%d", leader.PodIP, managerState.Status.Ports.GrpcLeaderElectionPort)
-		klog.V(4).Infof("Preparing to connect ctrlmesh-manager %v", addr)
+		klog.Infof("Preparing to connect ctrlmesh-manager %v", addr)
 		func() {
 			var opts []grpc.DialOption
 			opts = append(opts, grpc.WithInsecure())
@@ -182,7 +184,7 @@ func (c *grpcClient) syncing(connStream ctrlmeshproto.ControllerMesh_RegisterV1C
 	isFirstTime := true
 	for {
 		if isFirstTime {
-			klog.V(4).Infof("Waiting for the first time recv...")
+			klog.Infof("Waiting for the first time recv...")
 		}
 		err := c.recv(connStream)
 		if err != nil {
@@ -224,17 +226,20 @@ func (c *grpcClient) recv(connStream ctrlmeshproto.ControllerMesh_RegisterV1Clie
 		return nil
 	}
 
-	msg := fmt.Sprintf("Receive proto spec, subset: '%v', hash: %v", spec.Route.Subset, spec.Meta.Hash)
-	if klog.V(3).Enabled() {
-		msg = fmt.Sprintf("%s, endpoints: %v", msg, util.DumpJSON(spec.Endpoints))
-	}
-	if klog.V(4).Enabled() {
-		msg = fmt.Sprintf("%s, globalLimits: %v, subsetLimits: %v, subsetPublicResources: %v",
-			msg, util.DumpJSON(spec.Route.GlobalLimits), util.DumpJSON(spec.Route.SubsetLimits), util.DumpJSON(spec.Route.SubsetPublicResources))
+	msg := fmt.Sprintf("Receive proto spec (subset: '%v', hash: %v)", spec.Route.Subset, spec.Meta.Hash)
+	if c.prevSpec == nil {
+		msg = fmt.Sprintf("%s initial spec: %v", msg, util.DumpJSON(spec))
+	} else if c.prevSpec.Meta.Hash != spec.Meta.Hash {
+		if !proto.Equal(c.prevSpec.Route, spec.Route) {
+			msg = fmt.Sprintf("%s route changed: %v", msg, util.DumpJSON(spec.Route))
+		} else {
+			msg = fmt.Sprintf("%s endpoints changed: %v", msg, util.DumpJSON(spec.Endpoints))
+		}
 	}
 	klog.Info(msg)
 
 	c.specManager.UpdateSpec(spec)
+	c.prevSpec = spec
 	return nil
 }
 

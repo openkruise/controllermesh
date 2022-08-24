@@ -230,7 +230,7 @@ func (h *handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	klog.V(3).Infof("%s %s %s to %s", r.Method, r.Header.Get("Content-Type"), r.URL, r.Host)
+	klog.V(4).Infof("%s %s %s to %s", r.Method, r.Header.Get("Content-Type"), r.URL, r.Host)
 
 	accept, redirect, ignore, routeErr := h.router.Route(ar.Request)
 	if routeErr != nil {
