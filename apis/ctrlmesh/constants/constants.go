@@ -32,6 +32,7 @@ const (
 	ProxyLeaderElectionNameFlag = "leader-election-name"
 	ProxyWebhookServePortFlag   = "webhook-serve-port"
 	ProxyWebhookCertDirFlag     = "webhook-cert-dir"
+	ProxyUserAgentOverrideFlag  = "user-agent-override"
 
 	InitContainerName  = "ctrlmesh-init"
 	ProxyContainerName = "ctrlmesh-proxy"

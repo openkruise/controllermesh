@@ -52,6 +52,7 @@ var (
 	leaderElectionName = flag.String(constants.ProxyLeaderElectionNameFlag, "", "The name of leader election.")
 	webhookServePort   = flag.Int(constants.ProxyWebhookServePortFlag, 0, "Port that the real webhook binds, 0 means no proxy for webhook.")
 	webhookCertDir     = flag.String(constants.ProxyWebhookCertDirFlag, "", "The directory where the webhook certs generated or mounted.")
+	userAgentOverride  = flag.String(constants.ProxyUserAgentOverrideFlag, "", "The override policy for user-agent. If it ends with '/', we consider it as prefix and will be added to the front of original UserAgent. Otherwise, it will replace the original UserAgent.")
 )
 
 func main() {
@@ -108,6 +109,7 @@ func main() {
 		opts.SecureServingOptions.BindAddress = net.ParseIP("127.0.0.1")
 		opts.SecureServingOptions.BindPort = *proxyApiserverPort
 		opts.LeaderElectionName = *leaderElectionName
+		opts.UserAgentOverride = *userAgentOverride
 		opts.SpecManager = proxyClient.GetSpecManager()
 		errs := opts.Validate()
 		if len(errs) > 0 {

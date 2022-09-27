@@ -45,6 +45,7 @@ message RouteV1 {
   repeated MatchLimitRuleV1 globalLimits = 2;
   repeated SubsetLimitV1 subsetLimits = 3;
   repeated APIGroupResourceV1 subsetPublicResources = 4;
+  repeated string subsetDefaultOnlyUserAgents = 5;
 }
 
 message SubsetLimitV1 {

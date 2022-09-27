@@ -56,10 +56,6 @@ func (r *router) Route(req *admissionv1.AdmissionRequest) (*Accept, *Redirect, *
 	protoSpec := r.specManager.AcquireSpec()
 	defer r.specManager.ReleaseSpec(nil)
 
-	if protoSpec.IsDefaultAndEmpty() {
-		return &Accept{}, nil, nil, nil
-	}
-
 	ignore, self, hosts := protoSpec.GetMatchedSubsetEndpoint(req.Namespace, gr)
 	if ignore {
 		return nil, nil, &Ignore{}, nil

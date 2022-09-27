@@ -130,11 +130,6 @@ func (sm *SpecManager) AcquireSpec() *ctrlmeshproto.InternalSpec {
 
 func (sm *SpecManager) ReleaseSpec(req *ctrlmeshproto.ResourceRequest) {
 	defer sm.RUnlock()
-	if req == nil {
-		return
-	} else if req.ObjectSelector == nil && req.NamespacePassed.Len() == 0 && req.NamespaceDenied.Len() == 0 {
-		return
-	}
 	sm.requestsStoreLock.Lock()
 	defer sm.requestsStoreLock.Unlock()
 	sm.requestsStore.add(req)
@@ -161,6 +156,22 @@ func (sm *SpecManager) checkLoadable() (err error) {
 	sm.requestsStoreLock.Lock()
 	defer sm.requestsStoreLock.Unlock()
 	sm.requestsStore.rangeRequests(func(req *ctrlmeshproto.ResourceRequest) bool {
+		if req.UserAgentPassed != nil {
+			if matched := sm.expectedSpec.IsUserAgentMatch(*req.UserAgentPassed); !matched {
+				err = fmt.Errorf("user-agent %s is already passed, but it doesn't match the expected spec", *req.UserAgentPassed)
+				return false
+			}
+		}
+		if req.UserAgentDenied != nil {
+			if matched := sm.expectedSpec.IsUserAgentMatch(*req.UserAgentDenied); matched {
+				err = fmt.Errorf("user-agent %s is already denied, but it matches the expected spec", *req.UserAgentDenied)
+				return false
+			}
+		}
+
+		if req.GR.Empty() {
+			return true
+		}
 		objectSelector := sm.expectedSpec.GetObjectSelector(req.GR)
 		if !reflect.DeepEqual(objectSelector, req.ObjectSelector) {
 			err = fmt.Errorf("object selector for %v changed from %v to %v",

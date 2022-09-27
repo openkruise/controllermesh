@@ -50,6 +50,7 @@ type Options struct {
 	HandlerChainWaitGroup  *utilwaitgroup.SafeWaitGroup
 
 	LeaderElectionName string
+	UserAgentOverride  string
 	SpecManager        *protomanager.SpecManager
 }
 

@@ -40,13 +40,15 @@ type VirtualAppSpec struct {
 type VirtualAppConfiguration struct {
 	Controller *VirtualAppControllerConfiguration `json:"controller,omitempty"`
 	Webhook    *VirtualAppWebhookConfiguration    `json:"webhook,omitempty"`
+	// RestConfigOverrides defines the override policies for rest config.
+	RestConfigOverrides *VirtualAppRestConfigOverrides `json:"restConfigOverrides,omitempty"`
 }
 
 // VirtualAppRestConfigOverrides defines overrides to the application's rest config.
 type VirtualAppRestConfigOverrides struct {
 	// UserAgentOrPrefix can override the UserAgent of application.
-	// If it ends with '/', we consider it as prefix and will be add to the front of original UserAgent.
-	// Otherwise it will replace the original UserAgent.
+	// If it ends with '/', we consider it as prefix and will be added to the front of original UserAgent.
+	// Otherwise, it will replace the original UserAgent.
 	UserAgentOrPrefix *string `json:"userAgentOrPrefix,omitempty"`
 }
 
@@ -66,6 +68,9 @@ type VirtualAppRoute struct {
 	GlobalLimits          []MatchLimitSelector     `json:"globalLimits,omitempty"`
 	SubRules              []VirtualAppRouteSubRule `json:"subRules,omitempty"`
 	SubsetPublicResources []APIGroupResource       `json:"subsetPublicResources,omitempty"`
+	// SubsetDefaultOnlyUserAgents contains UserAgents that should only handle resources
+	// by the default subset.
+	SubsetDefaultOnlyUserAgents []string `json:"subsetDefaultOnlyUserAgents,omitempty"`
 }
 
 type VirtualAppRouteSubRule struct {

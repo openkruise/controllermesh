@@ -26,9 +26,12 @@ import (
 	"github.com/openkruise/controllermesh/apis/ctrlmesh/constants"
 	ctrlmeshv1alpha1 "github.com/openkruise/controllermesh/apis/ctrlmesh/v1alpha1"
 	"github.com/openkruise/controllermesh/util"
+	webhookutil "github.com/openkruise/controllermesh/webhook/util"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/klog/v2"
 	utilpointer "k8s.io/utils/pointer"
@@ -36,8 +39,9 @@ import (
 )
 
 var (
-	initImage  = flag.String("init-image", "", "The image for ControllerMesh init container.")
-	proxyImage = flag.String("proxy-image", "", "The image for ControllerMesh proxy container.")
+	initImage             = flag.String("init-image", "", "The image for ControllerMesh init container.")
+	proxyImage            = flag.String("proxy-image", "", "The image for ControllerMesh proxy container.")
+	proxyImagePullSecrets = flag.String("proxy-image-pull-secrets", "", "Image pull secrets in the namespace of ctrlmesh-manager if need.")
 
 	proxyImagePullPolicy = flag.String("proxy-image-pull-policy", "Always", "Image pull policy for ControllerMesh proxy container, can be Always or IfNotPresent.")
 	proxyResourceCPU     = flag.String("proxy-cpu", "100m", "The CPU limit for ControllerMesh proxy container.")
@@ -191,14 +195,72 @@ func (h *MutatingHandler) injectByVirtualApp(ctx context.Context, pod *v1.Pod) (
 		proxyContainer.VolumeMounts = append(proxyContainer.VolumeMounts, certVolumeMounts[0])
 	}
 
+	if matchedVApp.Spec.Configuration.RestConfigOverrides != nil {
+		if matchedVApp.Spec.Configuration.RestConfigOverrides.UserAgentOrPrefix != nil {
+			proxyContainer.Args = append(
+				proxyContainer.Args,
+				fmt.Sprintf("--%s=%v", constants.ProxyUserAgentOverrideFlag, *matchedVApp.Spec.Configuration.RestConfigOverrides.UserAgentOrPrefix),
+			)
+		}
+	}
+
 	pod.Spec.InitContainers = append([]v1.Container{*initContainer}, pod.Spec.InitContainers...)
 	pod.Spec.Containers = append([]v1.Container{*proxyContainer}, pod.Spec.Containers...)
 	pod.Spec.Volumes = append(pod.Spec.Volumes, v1.Volume{Name: constants.VolumeName, VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}})
+	if proxyImagePullSecrets != nil && len(*proxyImagePullSecrets) > 0 {
+		pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, h.getImagePullSecrets(pod.Namespace, pod.Name, strings.Split(*proxyImagePullSecrets, ","))...)
+	}
 	if pod.Labels == nil {
 		pod.Labels = map[string]string{}
 	}
 	pod.Labels[ctrlmeshv1alpha1.VirtualAppInjectedKey] = matchedVApp.Name
 	return nil
+}
+
+func (h *MutatingHandler) getImagePullSecrets(podNamespace, podName string, secretNames []string) (refs []v1.LocalObjectReference) {
+	managerNamespace := webhookutil.GetNamespace()
+	if managerNamespace == podNamespace {
+		for _, name := range secretNames {
+			refs = append(refs, v1.LocalObjectReference{Name: name})
+		}
+		return
+	}
+
+	for _, secretName := range secretNames {
+		secret := v1.Secret{}
+		err := h.Client.Get(context.TODO(), types.NamespacedName{Namespace: podNamespace, Name: secretName}, &secret)
+		if err == nil {
+			refs = append(refs, v1.LocalObjectReference{Name: secretName})
+			continue
+		}
+
+		injectionSecretName := fmt.Sprintf("ctrlmesh-injection-%s", secretName)
+		err = h.Client.Get(context.TODO(), types.NamespacedName{Namespace: podNamespace, Name: injectionSecretName}, &secret)
+		if err == nil {
+			refs = append(refs, v1.LocalObjectReference{Name: injectionSecretName})
+			continue
+		}
+
+		// create a new secret in the pod namespace
+		err = h.Client.Get(context.TODO(), types.NamespacedName{Namespace: managerNamespace, Name: secretName}, &secret)
+		if err != nil {
+			klog.Warningf("Failed to inject imagePullSecret %s for Pod %s/%s, get the secret in %s error: %v",
+				secretName, podNamespace, podName, managerNamespace, err)
+			continue
+		}
+		newSecret := v1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: podNamespace, Name: injectionSecretName},
+			Data:       secret.Data,
+		}
+		err = h.Client.Create(context.TODO(), &newSecret)
+		if err != nil {
+			klog.Warningf("Failed to create imagePullSecret %s for Pod %s/%s: %v",
+				util.DumpJSON(newSecret), podNamespace, podName, err)
+			continue
+		}
+		refs = append(refs, v1.LocalObjectReference{Name: injectionSecretName})
+	}
+	return
 }
 
 func getKubernetesServiceHostPort(pod *v1.Pod) (vars []v1.EnvVar, err error) {

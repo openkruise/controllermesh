@@ -51,6 +51,17 @@ spec:
                     required:
                     - leaderElectionName
                     type: object
+                  restConfigOverrides:
+                    description: RestConfigOverrides defines the override policies
+                      for rest config.
+                    properties:
+                      userAgentOrPrefix:
+                        description: UserAgentOrPrefix can override the UserAgent
+                          of application. If it ends with '/', we consider it as prefix
+                          and will be added to the front of original UserAgent. Otherwise,
+                          it will replace the original UserAgent.
+                        type: string
+                    type: object
                   webhook:
                     description: VirtualAppWebhookConfiguration defines the configuration
                       of webhook in this application.
@@ -349,6 +360,12 @@ spec:
                       - match
                       - name
                       type: object
+                    type: array
+                  subsetDefaultOnlyUserAgents:
+                    description: SubsetDefaultOnlyUserAgents contains UserAgents that
+                      should only handle resources by the default subset.
+                    items:
+                      type: string
                     type: array
                   subsetPublicResources:
                     items:

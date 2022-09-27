@@ -80,8 +80,12 @@ func (r *router) Route(httpReq *http.Request, reqInfo *request.RequestInfo) (*Ro
 		r.specManager.ReleaseSpec(rr)
 	}()
 
-	if protoSpec.IsDefaultAndEmpty() {
-		return &RouteAccept{}, nil
+	userAgent := httpReq.UserAgent()
+	userAgentMatched := protoSpec.IsUserAgentMatch(userAgent)
+	if userAgentMatched {
+		rr.UserAgentPassed = &userAgent
+	} else {
+		rr.UserAgentDenied = &userAgent
 	}
 
 	apiResource, err := utildiscovery.DiscoverGVR(gvr)
@@ -103,6 +107,7 @@ func (r *router) Route(httpReq *http.Request, reqInfo *request.RequestInfo) (*Ro
 					Msg:  fmt.Sprintf("failed to inject selector %s into request: %v", util.DumpJSON(objectSelector), err),
 				}
 			}
+			rr.ObjectSelector = objectSelector
 		}
 
 		conf := &config{
@@ -111,6 +116,8 @@ func (r *router) Route(httpReq *http.Request, reqInfo *request.RequestInfo) (*Ro
 			groupResource: gvr.GroupResource(),
 			apiResource:   apiResource,
 			specManager:   r.specManager,
+			// TODO: do not send requests to APIServer if user-agent is denied, just mock empty responses
+			userAgentDenied: !userAgentMatched,
 		}
 		if reqInfo.Verb == "list" {
 			handler := &listHandler{config: *conf}
@@ -121,7 +128,9 @@ func (r *router) Route(httpReq *http.Request, reqInfo *request.RequestInfo) (*Ro
 	default:
 	}
 
-	if !protoSpec.IsNamespaceMatch(reqInfo.Namespace, gvr.GroupResource()) {
+	if !userAgentMatched {
+		return nil, &Error{Code: http.StatusForbidden, Msg: "userAgent denied"}
+	} else if !protoSpec.IsNamespaceMatch(reqInfo.Namespace, gvr.GroupResource()) {
 		return nil, &Error{Code: http.StatusForbidden, Msg: "not match subset rules"}
 	}
 
@@ -144,7 +153,7 @@ func injectSelector(httpReq *http.Request, sel *metav1.LabelSelector) error {
 			return err
 		}
 	}
-	selector, err := util.ValidatedLabelSelectorAsSelector(util.MergeLabelSelector(oldLabelSelector, sel))
+	selector, err := util.ValidatedLabelSelectorAsSelector(util.MergeLabelSelector(sel, oldLabelSelector))
 	if err != nil {
 		return err
 	}
@@ -157,11 +166,12 @@ func injectSelector(httpReq *http.Request, sel *metav1.LabelSelector) error {
 }
 
 type config struct {
-	httpReq       *http.Request
-	reqInfo       *request.RequestInfo
-	groupResource schema.GroupResource
-	apiResource   *metav1.APIResource
-	specManager   *protomanager.SpecManager
+	httpReq         *http.Request
+	reqInfo         *request.RequestInfo
+	groupResource   schema.GroupResource
+	apiResource     *metav1.APIResource
+	specManager     *protomanager.SpecManager
+	userAgentDenied bool
 }
 
 type listHandler struct {
@@ -206,6 +216,15 @@ func (h *listHandler) handle(resp *http.Response) error {
 }
 
 func (h *listHandler) filterItems(list runtime.Object) error {
+	if h.userAgentDenied {
+		if unstructuredObj, ok := list.(*unstructured.Unstructured); ok {
+			unstructuredObj.Object["items"] = []interface{}{}
+		} else {
+			apimeta.SetList(list, []runtime.Object{})
+		}
+		return nil
+	}
+
 	rr := &ctrlmeshproto.ResourceRequest{
 		GR:              h.groupResource,
 		NamespacePassed: sets.NewString(),
@@ -371,6 +390,11 @@ func (h *watchHandler) read() ([]byte, error) {
 }
 
 func (h *watchHandler) filterEvent(e *metav1.WatchEvent, obj runtime.Object) error {
+	if h.userAgentDenied {
+		e.Type = string(watch.Bookmark)
+		return nil
+	}
+
 	meta, err := apimeta.Accessor(obj)
 	if err != nil {
 		return err

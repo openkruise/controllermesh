@@ -185,10 +185,11 @@ func (r *VirtualAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				Hash:     hash,
 			},
 			Route: &ctrlmeshproto.RouteV1{
-				Subset:                subset,
-				GlobalLimits:          protoRoute.GlobalLimits,
-				SubsetLimits:          protoRoute.SubsetLimits,
-				SubsetPublicResources: protoRoute.SubsetPublicResources,
+				Subset:                      subset,
+				GlobalLimits:                protoRoute.GlobalLimits,
+				SubsetLimits:                protoRoute.SubsetLimits,
+				SubsetPublicResources:       protoRoute.SubsetPublicResources,
+				SubsetDefaultOnlyUserAgents: protoRoute.SubsetDefaultOnlyUserAgents,
 			},
 			Endpoints: protoEndpoints,
 		}

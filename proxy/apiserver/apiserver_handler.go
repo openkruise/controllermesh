@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -69,9 +70,10 @@ func NewProxy(opts *Options) (*Proxy, error) {
 	}
 
 	inHandler := &handler{
-		cfg:       opts.Config,
-		transport: tp,
-		router:    router.New(opts.SpecManager),
+		cfg:               opts.Config,
+		transport:         tp,
+		router:            router.New(opts.SpecManager),
+		userAgentOverride: opts.UserAgentOverride,
 	}
 	if opts.LeaderElectionName != "" {
 		inHandler.electionHandler = leaderelectionproxy.New(opts.SpecManager, opts.LeaderElectionName)
@@ -97,14 +99,17 @@ func (p *Proxy) Start(ctx context.Context) (<-chan struct{}, error) {
 }
 
 type handler struct {
-	cfg             *rest.Config
-	transport       http.RoundTripper
-	router          apiserverrouter.Router
-	electionHandler leaderelectionproxy.Handler
+	cfg               *rest.Config
+	transport         http.RoundTripper
+	router            apiserverrouter.Router
+	electionHandler   leaderelectionproxy.Handler
+	userAgentOverride string
 }
 
 func (h *handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
+	h.overrideUserAgent(r)
+
 	requestInfo, ok := apirequest.RequestInfoFrom(r.Context())
 	if !ok {
 		klog.Errorf("%s %s %s, no request info in context", r.Method, r.Header.Get("Content-Type"), r.URL)
@@ -162,6 +167,17 @@ func (h *handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	p.ModifyResponse = modifyResponse
 	p.ModifyBody = modifyBody
 	p.ServeHTTP(rw, r)
+}
+
+func (h *handler) overrideUserAgent(r *http.Request) {
+	if len(h.userAgentOverride) == 0 {
+		return
+	}
+	userAgent := h.userAgentOverride
+	if strings.HasSuffix(h.userAgentOverride, "/") {
+		userAgent = userAgent + r.UserAgent()
+	}
+	r.Header.Set("User-Agent", userAgent)
 }
 
 func (h *handler) newProxy(r *http.Request) *utilhttp.ReverseProxy {
