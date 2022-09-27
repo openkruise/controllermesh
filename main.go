@@ -33,6 +33,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -98,12 +99,13 @@ func main() {
 	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:                  scheme,
-		MetricsBindAddress:      metricsAddr,
-		HealthProbeBindAddress:  probeAddr,
-		LeaderElection:          true,
-		LeaderElectionID:        "controllermesh-manager",
-		LeaderElectionNamespace: leaderElectionNamespace,
+		Scheme:                     scheme,
+		MetricsBindAddress:         metricsAddr,
+		HealthProbeBindAddress:     probeAddr,
+		LeaderElection:             true,
+		LeaderElectionID:           "controllermesh-manager",
+		LeaderElectionNamespace:    leaderElectionNamespace,
+		LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")

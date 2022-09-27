@@ -33,20 +33,23 @@ const (
 )
 
 type ResourceRequest struct {
-	GR schema.GroupResource
+	GR schema.GroupResource `json:"GR,omitempty"`
 
-	ObjectSelector  *metav1.LabelSelector
-	NamespacePassed sets.String
-	NamespaceDenied sets.String
+	ObjectSelector  *metav1.LabelSelector `json:"objectSelector,omitempty"`
+	NamespacePassed sets.String           `json:"namespacePassed,omitempty"`
+	NamespaceDenied sets.String           `json:"namespaceDenied,omitempty"`
+	UserAgentPassed *string               `json:"userAgentPassed,omitempty"`
+	UserAgentDenied *string               `json:"userAgentDenied,omitempty"`
 }
 
 func ConvertProtoSpecToInternal(protoSpec *ProxySpecV1) *InternalSpec {
 	is := &InternalSpec{ProxySpecV1: protoSpec}
 	if r := protoSpec.Route; r != nil {
 		is.routeInternal = &internalRoute{
-			subset:                r.Subset,
-			globalLimits:          convertProtoMatchLimitRuleToInternal(r.GlobalLimits),
-			subsetPublicResources: r.SubsetPublicResources,
+			subset:                      r.Subset,
+			globalLimits:                convertProtoMatchLimitRuleToInternal(r.GlobalLimits),
+			subsetPublicResources:       r.SubsetPublicResources,
+			subsetDefaultOnlyUserAgents: sets.NewString(r.SubsetDefaultOnlyUserAgents...),
 		}
 		for _, subsetLimit := range r.SubsetLimits {
 			is.routeInternal.subsetLimits = append(is.routeInternal.subsetLimits, &internalSubsetLimit{
@@ -87,10 +90,12 @@ type InternalSpec struct {
 	routeInternal *internalRoute
 }
 
-func (is *InternalSpec) IsDefaultAndEmpty() bool {
-	return is.routeInternal.subset == "" &&
-		len(is.routeInternal.globalLimits) == 0 &&
-		len(is.routeInternal.subsetLimits) <= 1
+func (is *InternalSpec) IsUserAgentMatch(userAgent string) bool {
+	if is.routeInternal.subsetDefaultOnlyUserAgents.Has(userAgent) {
+		// Only for default subset
+		return is.routeInternal.subset == ""
+	}
+	return true
 }
 
 func (is *InternalSpec) IsNamespaceMatch(ns string, gr schema.GroupResource) bool {
@@ -125,10 +130,11 @@ func (is *InternalSpec) GetMatchedSubsetEndpoint(ns string, gr schema.GroupResou
 }
 
 type internalRoute struct {
-	subset                string
-	globalLimits          []*internalMatchLimitRule
-	subsetLimits          []*internalSubsetLimit
-	subsetPublicResources []*APIGroupResourceV1
+	subset                      string
+	globalLimits                []*internalMatchLimitRule
+	subsetLimits                []*internalSubsetLimit
+	subsetPublicResources       []*APIGroupResourceV1
+	subsetDefaultOnlyUserAgents sets.String
 }
 
 type internalSubsetLimit struct {

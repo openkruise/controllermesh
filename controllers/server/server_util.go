@@ -63,6 +63,7 @@ func generateProtoRoute(vApp *ctrlmeshv1alpha1.VirtualApp, namespaces []*v1.Name
 	if vApp.Spec.Route != nil {
 		protoRoute.GlobalLimits, _ = generateMatchLimitRules(vApp.Spec.Route.GlobalLimits, namespaces)
 		protoRoute.SubsetPublicResources = generateAPIResources(vApp.Spec.Route.SubsetPublicResources)
+		protoRoute.SubsetDefaultOnlyUserAgents = vApp.Spec.Route.SubsetDefaultOnlyUserAgents
 	}
 
 	// build rules map

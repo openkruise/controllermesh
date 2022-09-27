@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
 	ctrlmeshproto "github.com/openkruise/controllermesh/apis/ctrlmesh/proto"
@@ -28,40 +29,70 @@ import (
 )
 
 type requestsStore struct {
-	storage      *storage
-	requestsByGR map[string]*ctrlmeshproto.ResourceRequest
+	storage *storage
+	pack    requestsPack
+}
+
+type requestsPack struct {
+	RequestsByGR    map[string]*ctrlmeshproto.ResourceRequest `json:"requestsByGR,omitempty"`
+	UserAgentPassed sets.String                               `json:"userAgentPassed,omitempty"`
+	UserAgentDenied sets.String                               `json:"userAgentDenied,omitempty"`
 }
 
 func newRequestsStore(s *storage) *requestsStore {
 	return &requestsStore{
-		storage:      s,
-		requestsByGR: map[string]*ctrlmeshproto.ResourceRequest{},
+		storage: s,
+		pack: requestsPack{
+			RequestsByGR:    map[string]*ctrlmeshproto.ResourceRequest{},
+			UserAgentPassed: sets.NewString(),
+			UserAgentDenied: sets.NewString(),
+		},
 	}
 }
 
 func (rs *requestsStore) add(req *ctrlmeshproto.ResourceRequest) {
+	if req == nil {
+		return
+	}
+
 	var changed bool
-	r := rs.requestsByGR[req.GR.String()]
-	if r == nil {
-		klog.Infof("GroupVersion %s initial record: %v", req.GR.String(), util.DumpJSON(req))
-		rs.requestsByGR[req.GR.String()] = req
-		changed = true
-	} else {
-		if !reflect.DeepEqual(r.ObjectSelector, req.ObjectSelector) {
-			klog.Warningf("Find %s has new object selector %s different with the old %v",
-				req.GR.String(), util.DumpJSON(req.ObjectSelector), util.DumpJSON(r.ObjectSelector))
-			r.ObjectSelector = req.ObjectSelector
+
+	if req.UserAgentPassed != nil {
+		if !rs.pack.UserAgentPassed.Has(*req.UserAgentPassed) {
+			rs.pack.UserAgentPassed.Insert(*req.UserAgentPassed)
 			changed = true
 		}
-		if diff := req.NamespacePassed.Difference(r.NamespacePassed); diff.Len() > 0 {
-			klog.Infof("GroupVersion %s has additional namespaces passed: %v", req.GR.String(), diff.List())
-			r.NamespacePassed.Insert(diff.UnsortedList()...)
+	} else if req.UserAgentDenied != nil {
+		if !rs.pack.UserAgentDenied.Has(*req.UserAgentDenied) {
+			klog.Infof("Additional user-agent denied: %v", *req.UserAgentDenied)
+			rs.pack.UserAgentDenied.Insert(*req.UserAgentDenied)
 			changed = true
 		}
-		if diff := req.NamespaceDenied.Difference(r.NamespaceDenied); diff.Len() > 0 {
-			klog.Infof("GroupVersion %s has additional namespaces denied: %v", req.GR.String(), diff.List())
-			r.NamespaceDenied.Insert(diff.UnsortedList()...)
+	}
+
+	if req.ObjectSelector != nil || req.NamespacePassed.Len() > 0 || req.NamespaceDenied.Len() > 0 {
+		reqByGR := rs.pack.RequestsByGR[req.GR.String()]
+		if reqByGR == nil {
+			klog.Infof("GroupVersion %s initial record: %v", req.GR.String(), util.DumpJSON(req))
+			rs.pack.RequestsByGR[req.GR.String()] = req
 			changed = true
+		} else {
+			if !reflect.DeepEqual(reqByGR.ObjectSelector, req.ObjectSelector) {
+				klog.Warningf("Find %s has new object selector %s different with the old %v",
+					req.GR.String(), util.DumpJSON(req.ObjectSelector), util.DumpJSON(reqByGR.ObjectSelector))
+				reqByGR.ObjectSelector = req.ObjectSelector
+				changed = true
+			}
+			if diff := req.NamespacePassed.Difference(reqByGR.NamespacePassed); diff.Len() > 0 {
+				klog.Infof("GroupVersion %s has additional namespaces passed: %v", req.GR.String(), diff.List())
+				reqByGR.NamespacePassed.Insert(diff.UnsortedList()...)
+				changed = true
+			}
+			if diff := req.NamespaceDenied.Difference(reqByGR.NamespaceDenied); diff.Len() > 0 {
+				klog.Infof("GroupVersion %s has additional namespaces denied: %v", req.GR.String(), diff.List())
+				reqByGR.NamespaceDenied.Insert(diff.UnsortedList()...)
+				changed = true
+			}
 		}
 	}
 
@@ -73,7 +104,17 @@ func (rs *requestsStore) add(req *ctrlmeshproto.ResourceRequest) {
 }
 
 func (rs *requestsStore) rangeRequests(fn func(*ctrlmeshproto.ResourceRequest) bool) {
-	for _, req := range rs.requestsByGR {
+	for _, userAgent := range rs.pack.UserAgentPassed.UnsortedList() {
+		if ok := fn(&ctrlmeshproto.ResourceRequest{UserAgentPassed: &userAgent}); !ok {
+			break
+		}
+	}
+	for _, userAgent := range rs.pack.UserAgentDenied.UnsortedList() {
+		if ok := fn(&ctrlmeshproto.ResourceRequest{UserAgentDenied: &userAgent}); !ok {
+			break
+		}
+	}
+	for _, req := range rs.pack.RequestsByGR {
 		if ok := fn(req); !ok {
 			break
 		}
@@ -81,9 +122,9 @@ func (rs *requestsStore) rangeRequests(fn func(*ctrlmeshproto.ResourceRequest) b
 }
 
 func (rs *requestsStore) marshal() ([]byte, error) {
-	return json.Marshal(rs.requestsByGR)
+	return json.Marshal(rs.pack)
 }
 
 func (rs *requestsStore) unmarshal(data []byte) error {
-	return json.Unmarshal(data, &rs.requestsByGR)
+	return json.Unmarshal(data, &rs.pack)
 }
