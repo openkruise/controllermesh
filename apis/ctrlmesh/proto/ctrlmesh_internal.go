@@ -208,7 +208,7 @@ func (ir *internalRoute) getObjectSelector(gr schema.GroupResource) (sel *metav1
 	}
 
 	for _, subsetLimits := range ir.subsetLimits {
-		var isSelfSubset bool
+		isSelfSubset := subsetLimits.subset == ir.subset
 
 		for _, limit := range subsetLimits.limits {
 			if limit.objectSelector == nil {
