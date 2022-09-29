@@ -85,12 +85,20 @@ func (rs *requestsStore) add(req *ctrlmeshproto.ResourceRequest) {
 			}
 			if diff := req.NamespacePassed.Difference(reqByGR.NamespacePassed); diff.Len() > 0 {
 				klog.Infof("GroupVersion %s has additional namespaces passed: %v", req.GR.String(), diff.List())
-				reqByGR.NamespacePassed.Insert(diff.UnsortedList()...)
+				if reqByGR.NamespacePassed == nil {
+					reqByGR.NamespacePassed = diff
+				} else {
+					reqByGR.NamespacePassed.Insert(diff.UnsortedList()...)
+				}
 				changed = true
 			}
 			if diff := req.NamespaceDenied.Difference(reqByGR.NamespaceDenied); diff.Len() > 0 {
 				klog.Infof("GroupVersion %s has additional namespaces denied: %v", req.GR.String(), diff.List())
-				reqByGR.NamespaceDenied.Insert(diff.UnsortedList()...)
+				if reqByGR.NamespaceDenied == nil {
+					reqByGR.NamespaceDenied = diff
+				} else {
+					reqByGR.NamespaceDenied.Insert(diff.UnsortedList()...)
+				}
 				changed = true
 			}
 		}
