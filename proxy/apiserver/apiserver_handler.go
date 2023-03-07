@@ -19,8 +19,11 @@ package apiserver
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +41,7 @@ import (
 	"k8s.io/client-go/transport"
 	"k8s.io/klog/v2"
 
+	"github.com/openkruise/controllermesh/apis/ctrlmesh/constants"
 	"github.com/openkruise/controllermesh/proxy/apiserver/router"
 	apiserverrouter "github.com/openkruise/controllermesh/proxy/apiserver/router"
 	ctrlmeshfilters "github.com/openkruise/controllermesh/proxy/filters"
@@ -50,12 +54,14 @@ import (
 
 var (
 	upgradeSubresources = sets.NewString("exec", "attach")
+	disableIptables     = os.Getenv(constants.EnvDisableIptables) == "true"
 )
 
 type Proxy struct {
-	opts        *Options
-	servingInfo *server.SecureServingInfo
-	handler     http.Handler
+	opts           *Options
+	servingInfo    *server.SecureServingInfo
+	insecureServer *http.Server
+	handler        http.Handler
 }
 
 func NewProxy(opts *Options) (*Proxy, error) {
@@ -87,10 +93,25 @@ func NewProxy(opts *Options) (*Proxy, error) {
 	handler = genericapifilters.WithRequestInfo(handler, opts.RequestInfoResolver)
 	handler = ctrlmeshfilters.WithPanicRecovery(handler, opts.RequestInfoResolver)
 
-	return &Proxy{opts: opts, servingInfo: servingInfo, handler: handler}, nil
+	insecureServer := &http.Server{
+		Addr:           net.JoinHostPort(opts.SecureServingOptions.BindAddress.String(), strconv.Itoa(opts.SecureServingOptions.BindPort)),
+		Handler:        handler,
+		MaxHeaderBytes: 1 << 20,
+	}
+
+	return &Proxy{opts: opts, servingInfo: servingInfo, insecureServer: insecureServer, handler: handler}, nil
 }
 
 func (p *Proxy) Start(ctx context.Context) (<-chan struct{}, error) {
+	if disableIptables {
+		stoppedCh := make(chan struct{})
+		go func() {
+			if err := p.insecureServer.ListenAndServe(); err != nil {
+				close(stoppedCh)
+			}
+		}()
+		return stoppedCh, nil
+	}
 	stopped, err := p.servingInfo.Serve(p.handler, time.Minute, ctx.Done())
 	if err != nil {
 		return nil, fmt.Errorf("error serve with options %s: %v", util.DumpJSON(p.opts), err)
@@ -181,15 +202,19 @@ func (h *handler) overrideUserAgent(r *http.Request) {
 }
 
 func (h *handler) newProxy(r *http.Request) *utilhttp.ReverseProxy {
-	p := utilhttp.NewSingleHostReverseProxy(getURL(r))
+	p := utilhttp.NewSingleHostReverseProxy(h.getURL(r))
 	p.Transport = h.transport
 	p.FlushInterval = 500 * time.Millisecond
 	p.BufferPool = pool.BytesPool
 	return p
 }
 
-func getURL(r *http.Request) *url.URL {
+func (h *handler) getURL(r *http.Request) *url.URL {
 	u, _ := url.Parse(fmt.Sprintf("https://%s", r.Host))
+	if disableIptables {
+		u, _ = url.Parse(fmt.Sprintf(h.cfg.Host))
+		r.Host = ""
+	}
 	return u
 }
 
@@ -208,7 +233,7 @@ func (h *handler) upgradeProxyHandler(rw http.ResponseWriter, r *http.Request) {
 	}
 	proxyRoundTripper := transport.NewAuthProxyRoundTripper(user.APIServerUser, []string{user.SystemPrivilegedGroup}, nil, wrappedRT)
 
-	p := proxy.NewUpgradeAwareHandler(getURL(r), proxyRoundTripper, true, true, &responder{w: rw})
+	p := proxy.NewUpgradeAwareHandler(h.getURL(r), proxyRoundTripper, true, true, &responder{w: rw})
 	p.ServeHTTP(rw, r)
 }
 

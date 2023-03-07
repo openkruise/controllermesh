@@ -23,11 +23,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/openkruise/controllermesh/apis/ctrlmesh/constants"
-	ctrlmeshv1alpha1 "github.com/openkruise/controllermesh/apis/ctrlmesh/v1alpha1"
-	"github.com/openkruise/controllermesh/util"
-	webhookutil "github.com/openkruise/controllermesh/webhook/util"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -36,6 +33,11 @@ import (
 	"k8s.io/klog/v2"
 	utilpointer "k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/openkruise/controllermesh/apis/ctrlmesh/constants"
+	ctrlmeshv1alpha1 "github.com/openkruise/controllermesh/apis/ctrlmesh/v1alpha1"
+	"github.com/openkruise/controllermesh/util"
+	webhookutil "github.com/openkruise/controllermesh/webhook/util"
 )
 
 var (
@@ -48,6 +50,8 @@ var (
 	proxyResourceMemory  = flag.String("proxy-memory", "200Mi", "The Memory limit for ControllerMesh proxy container.")
 	proxyLogLevel        = flag.Uint("proxy-logv", 3, "The log level of ControllerMesh proxy container.")
 	proxyExtraEnvs       = flag.String("proxy-extra-envs", "", "Extra environments for ControllerMesh proxy container.")
+
+	fakeConfigMap = flag.String("fake-configmap", "fake-kubeconfig", "The fake kubeconfig configmap name")
 )
 
 // +kubebuilder:rbac:groups=ctrlmesh.kruise.io,resources=virtualapps,verbs=get;list;watch
@@ -204,7 +208,17 @@ func (h *MutatingHandler) injectByVirtualApp(ctx context.Context, pod *v1.Pod) (
 		}
 	}
 
-	pod.Spec.InitContainers = append([]v1.Container{*initContainer}, pod.Spec.InitContainers...)
+	if !disableIptables(pod) {
+		pod.Spec.InitContainers = append([]v1.Container{*initContainer}, pod.Spec.InitContainers...)
+	} else {
+		if err = h.initFakeConfigMap(pod); err != nil {
+			return err
+		}
+		if err = h.mountFakeKubeConfig(pod, *fakeConfigMap); err != nil {
+			return err
+		}
+	}
+
 	pod.Spec.Containers = append([]v1.Container{*proxyContainer}, pod.Spec.Containers...)
 	pod.Spec.Volumes = append(pod.Spec.Volumes, v1.Volume{Name: constants.VolumeName, VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}})
 	if proxyImagePullSecrets != nil && len(*proxyImagePullSecrets) > 0 {
@@ -215,6 +229,26 @@ func (h *MutatingHandler) injectByVirtualApp(ctx context.Context, pod *v1.Pod) (
 	}
 	pod.Labels[ctrlmeshv1alpha1.VirtualAppInjectedKey] = matchedVApp.Name
 	return nil
+}
+
+func disableIptables(po *v1.Pod) bool {
+	envs := getEnv(po, constants.EnvDisableIptables)
+	for _, env := range envs {
+		if env.Value == "true" {
+			return true
+		}
+	}
+	return false
+}
+
+func getEnv(pod *v1.Pod, key string) map[string]*v1.EnvVar {
+	vars := map[string]*v1.EnvVar{}
+	for i := range pod.Spec.Containers {
+		if envVar := util.GetContainerEnvVar(&pod.Spec.Containers[i], key); envVar != nil {
+			vars[pod.Spec.Containers[i].Name] = envVar
+		}
+	}
+	return vars
 }
 
 func (h *MutatingHandler) getImagePullSecrets(podNamespace, podName string, secretNames []string) (refs []v1.LocalObjectReference) {
@@ -261,6 +295,104 @@ func (h *MutatingHandler) getImagePullSecrets(podNamespace, podName string, secr
 		refs = append(refs, v1.LocalObjectReference{Name: injectionSecretName})
 	}
 	return
+}
+
+func (h *MutatingHandler) initFakeConfigMap(po *v1.Pod) (err error) {
+	cm := &v1.ConfigMap{}
+	if err = h.Client.Get(context.TODO(), types.NamespacedName{Namespace: po.Namespace, Name: *fakeConfigMap}, cm); err == nil || !errors.IsNotFound(err) {
+		return err
+	}
+	cm = &v1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      *fakeConfigMap,
+			Namespace: po.Namespace,
+		},
+		Data: map[string]string{fmt.Sprintf("%s.yaml", *fakeConfigMap): fmt.Sprintf(
+			"apiVersion: v1\n"+
+				"clusters:\n"+
+				"  - cluster:\n"+
+				"      insecure-skip-tls-verify: true\n"+
+				"      server: http://127.0.0.1:%d\n"+
+				"    name: fake-cluster\n"+"contexts:\n"+
+				"  - context:\n"+
+				"      cluster: fake-cluster\n"+
+				"      namespace: fake-namespace\n"+
+				"      user: fake-user\n"+
+				"    name: fake-context\n"+
+				"current-context: fake-context\n"+
+				"kind: Config\n"+
+				"preferences: {}\n"+
+				"users:\n"+
+				"  - name: fake-user\n"+
+				"    user:\n"+
+				"      username:\n"+
+				"      password:\n",
+			constants.ProxyApiserverPort)},
+	}
+	if err = h.Client.Create(context.TODO(), cm); err != nil && !errors.IsAlreadyExists(err) && !errors.IsConflict(err) {
+		return err
+	}
+	return nil
+}
+
+func (h *MutatingHandler) mountFakeKubeConfig(pod *v1.Pod, name string) error {
+	vm := &v1.VolumeMount{
+		Name:      name,
+		MountPath: "/etc/kubernetes/kubeconfig",
+		ReadOnly:  true,
+	}
+	mod := int32(420)
+	vol := &v1.Volume{
+		Name: name,
+		VolumeSource: v1.VolumeSource{
+			ConfigMap: &v1.ConfigMapVolumeSource{
+				LocalObjectReference: v1.LocalObjectReference{Name: *fakeConfigMap},
+				DefaultMode:          &mod,
+			},
+		},
+	}
+	if pod.Spec.Volumes == nil {
+		pod.Spec.Volumes = []v1.Volume{}
+	}
+	findVol := false
+	for _, vl := range pod.Spec.Volumes {
+		if vl.Name == name {
+			if vl.ConfigMap == nil || vl.ConfigMap.Name != name {
+				return fmt.Errorf("conflict volume of %s", name)
+			}
+			findVol = true
+		}
+	}
+	if !findVol {
+		pod.Spec.Volumes = append(pod.Spec.Volumes, *vol)
+	}
+	for i := range pod.Spec.Containers {
+		pod.Spec.Containers[i].VolumeMounts = append(pod.Spec.Containers[i].VolumeMounts, *vm.DeepCopy())
+		findArgs := false
+		for id, val := range pod.Spec.Containers[i].Args {
+			if strings.HasPrefix(val, "--kubeconfig") || strings.HasPrefix(val, "-kubeconfig") {
+				findArgs = true
+				pod.Spec.Containers[i].Args[id] = fmt.Sprintf("--kubeconfig=/etc/kubernetes/kubeconfig/%s.yaml", name)
+			}
+		}
+		if !findArgs {
+			pod.Spec.Containers[i].Args = append(pod.Spec.Containers[i].Args, fmt.Sprintf("--kubeconfig=/etc/kubernetes/kubeconfig/%s.yaml", name))
+		}
+		findKubeconfigEnv := false
+		for k, env := range pod.Spec.Containers[i].Env {
+			if env.Name == "KUBECONFIG" {
+				pod.Spec.Containers[i].Env[k].Value = fmt.Sprintf("/etc/kubernetes/kubeconfig/%s.yaml", name)
+				findKubeconfigEnv = true
+			}
+		}
+		if !findKubeconfigEnv {
+			pod.Spec.Containers[i].Env = append(pod.Spec.Containers[i].Env, v1.EnvVar{
+				Name:  "KUBECONFIG",
+				Value: fmt.Sprintf("/etc/kubernetes/kubeconfig/%s.yaml", name),
+			})
+		}
+	}
+	return nil
 }
 
 func getKubernetesServiceHostPort(pod *v1.Pod) (vars []v1.EnvVar, err error) {
