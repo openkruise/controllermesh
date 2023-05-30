@@ -22,6 +22,8 @@ import (
 	"net/http"
 
 	admissionv1 "k8s.io/api/admission/v1"
+	kubeclientset "k8s.io/client-go/kubernetes"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	"sigs.k8s.io/controller-runtime/pkg/runtime/inject"
 
@@ -33,6 +35,8 @@ import (
 type MutatingHandler struct {
 	Client  client.Client
 	Decoder *admission.Decoder
+
+	directKubeClient *kubeclientset.Clientset
 }
 
 var _ admission.Handler = &MutatingHandler{}
@@ -68,9 +72,10 @@ func (h *MutatingHandler) Handle(ctx context.Context, req admission.Request) adm
 var _ inject.Client = &MutatingHandler{}
 
 // InjectClient injects the client into the PodCreateHandler
-func (h *MutatingHandler) InjectClient(c client.Client) error {
+func (h *MutatingHandler) InjectClient(c client.Client) (err error) {
+	h.directKubeClient, err = kubeclientset.NewForConfig(ctrl.GetConfigOrDie())
 	h.Client = c
-	return nil
+	return err
 }
 
 var _ admission.DecoderInjector = &MutatingHandler{}

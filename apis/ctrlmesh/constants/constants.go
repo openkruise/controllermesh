@@ -42,6 +42,8 @@ const (
 	EnvPodNamespace       = "POD_NAMESPACE"
 	EnvPodIP              = "POD_IP"
 
+	EnvDisableIptables = "CTRLMESH_DISABLE_IPTABLE"
+
 	VolumeName      = "ctrlmesh"
 	VolumeMountPath = "/ctrlmesh"
 )
